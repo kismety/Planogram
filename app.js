@@ -436,6 +436,249 @@ async function shareFinalPNG() {
   }
 }
 
+
+let LAST_PDF_BLOB = null;
+let LAST_PDF_NAME = "";
+
+function pdfColorForStatus(status) {
+  if (status === "Complete") return [231,244,228];
+  if (status === "Missing") return [253,233,231];
+  return [255,246,217];
+}
+
+async function buildFinalPlanogramPDFBlob() {
+  if (!DATA.length) throw new Error("Upload a planogram first.");
+  if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("PDF engine did not load.");
+
+  const { jsPDF } = window.jspdf;
+  const store = ($("storeName")?.value || currentStore || "Store").trim();
+  const planName = ($("planogramName")?.value || "Planogram").trim();
+  const cols = columns();
+  if (!cols.length) throw new Error("No columns found.");
+
+  // Landscape A4. Multiple columns will flow across multiple pages if needed.
+  const doc = new jsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+
+  const margin = 10;
+  const headerH = 28;
+  const colW = 63;
+  const gap = 3;
+  const rowH = 15;
+  const colsPerPage = Math.max(1, Math.floor((pageW - margin*2 + gap) / (colW + gap)));
+
+  const counts = finalCounts();
+
+  function drawPageHeader(pageCols, pageNum) {
+    doc.setTextColor(20,20,20);
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(16);
+    doc.text(store, margin, 10);
+    doc.setFontSize(12);
+    doc.text(planName, margin, 17);
+
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(90,90,90);
+    doc.text(
+      `${counts.complete} Complete | ${counts.missing} Missing | ${counts.notComplete} Not Complete | ${DATA.length} Total`,
+      margin, 23
+    );
+    doc.text(`Page ${pageNum}`, pageW - margin - 14, 10);
+
+    // legend
+    const ly = pageH - 7;
+    const legend = [
+      [[231,244,228],"Complete"],
+      [[253,233,231],"Missing"],
+      [[255,246,217],"Not Complete"]
+    ];
+    let lx = margin;
+    legend.forEach(([rgb,label]) => {
+      doc.setFillColor(...rgb);
+      doc.rect(lx, ly-3.5, 5, 4.5, "F");
+      doc.setDrawColor(190,190,190);
+      doc.rect(lx, ly-3.5, 5, 4.5);
+      doc.setTextColor(40,40,40);
+      doc.setFontSize(7.5);
+      doc.text(label, lx+7, ly);
+      lx += 30;
+    });
+  }
+
+  let pageNum = 1;
+  for (let start=0; start<cols.length; start += colsPerPage) {
+    if (start > 0) {
+      doc.addPage("a4","landscape");
+      pageNum++;
+    }
+
+    const pageCols = cols.slice(start, start + colsPerPage);
+    drawPageHeader(pageCols, pageNum);
+
+    pageCols.forEach((c, localIndex) => {
+      const x = margin + localIndex*(colW+gap);
+      const y0 = headerH;
+
+      doc.setFillColor(20,20,20);
+      doc.rect(x, y0, colW, 9, "F");
+      doc.setTextColor(255,255,255);
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(11);
+      doc.text(c, x+3, y0+6);
+
+      const rows = DATA.filter(r=>r.column===c)
+        .sort((a,b)=>rowNumber(a.row)-rowNumber(b.row));
+
+      let y = y0 + 9;
+      rows.forEach(r => {
+        const status = getStatus(r);
+        const rgb = pdfColorForStatus(status);
+
+        // If column exceeds page, continue on next page for this column.
+        if (y + rowH > pageH - 14) {
+          doc.addPage("a4","landscape");
+          pageNum++;
+          drawPageHeader([c], pageNum);
+          y = headerH;
+          doc.setFillColor(20,20,20);
+          doc.rect(margin, y, colW, 9, "F");
+          doc.setTextColor(255,255,255);
+          doc.setFont("helvetica","bold");
+          doc.setFontSize(11);
+          doc.text(c + " (cont.)", margin+3, y+6);
+          y += 9;
+        }
+
+        const dx = (y === y0 + 9) ? x : (y < headerH + 12 ? margin : x);
+        const drawX = (pageNum > 1 && start===0 && y < headerH+20) ? margin : dx;
+
+        doc.setFillColor(...rgb);
+        doc.rect(drawX, y, colW, rowH, "F");
+        doc.setDrawColor(210,210,210);
+        doc.rect(drawX, y, colW, rowH);
+
+        doc.setTextColor(20,20,20);
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(7.5);
+        doc.text((r.position || `${c}-${r.row}`).slice(0,18), drawX+2, y+4);
+
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(8);
+        const cardLines = doc.splitTextToSize(r.card || "", colW-4);
+        doc.text(cardLines.slice(0,2), drawX+2, y+8);
+
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(6.5);
+        if (status === "Complete") doc.setTextColor(45,106,45);
+        else if (status === "Missing") doc.setTextColor(169,68,66);
+        else doc.setTextColor(138,109,0);
+        doc.text(status, drawX+2, y+13);
+
+        if (r.denomination) {
+          doc.setTextColor(90,90,90);
+          doc.setFont("helvetica","normal");
+          doc.text(String(r.denomination).slice(0,18), drawX+colW-2, y+13, {align:"right"});
+        }
+
+        y += rowH;
+      });
+    });
+  }
+
+  const blob = doc.output("blob");
+  const safeStore = store.replace(/[^a-z0-9_-]+/gi,"_");
+  const safePlan = planName.replace(/[^a-z0-9_-]+/gi,"_");
+  LAST_PDF_NAME = `${safeStore}_${safePlan}_FINAL.pdf`;
+  LAST_PDF_BLOB = blob;
+  return {blob, name:LAST_PDF_NAME};
+}
+
+async function generateFinalPDF() {
+  try {
+    const {blob,name} = await buildFinalPlanogramPDFBlob();
+    const url = URL.createObjectURL(blob);
+
+    // iPhone/Safari: open first because browser PDF viewer has a reliable Share button.
+    const opened = window.open(url, "_blank");
+    if (!opened) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    $("finalPdfStatus").textContent =
+      "✓ PDF generated. In Safari PDF view, tap Share to Save to Files or send it.";
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (e) {
+    $("finalPdfStatus").textContent = "PDF generation failed: " + e.message;
+  }
+}
+
+async function openFinalPDF() {
+  try {
+    const result = LAST_PDF_BLOB
+      ? {blob:LAST_PDF_BLOB,name:LAST_PDF_NAME}
+      : await buildFinalPlanogramPDFBlob();
+
+    const url = URL.createObjectURL(result.blob);
+    window.open(url, "_blank");
+    $("finalPdfStatus").textContent = "PDF opened. Use Safari Share → Save to Files.";
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (e) {
+    $("finalPdfStatus").textContent = "Could not open PDF: " + e.message;
+  }
+}
+
+async function downloadFinalPDF() {
+  try {
+    const result = LAST_PDF_BLOB
+      ? {blob:LAST_PDF_BLOB,name:LAST_PDF_NAME}
+      : await buildFinalPlanogramPDFBlob();
+
+    const url = URL.createObjectURL(result.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = result.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    $("finalPdfStatus").textContent = "✓ PDF download requested.";
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (e) {
+    $("finalPdfStatus").textContent = "Could not download PDF: " + e.message;
+  }
+}
+
+async function shareFinalPDF() {
+  try {
+    const result = LAST_PDF_BLOB
+      ? {blob:LAST_PDF_BLOB,name:LAST_PDF_NAME}
+      : await buildFinalPlanogramPDFBlob();
+
+    const file = new File([result.blob], result.name, {type:"application/pdf"});
+
+    if (navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({title:"Final Planogram", files:[file]});
+      $("finalPdfStatus").textContent = "✓ PDF shared.";
+    } else {
+      const url = URL.createObjectURL(result.blob);
+      window.open(url, "_blank");
+      $("finalPdfStatus").textContent =
+        "PDF opened. Safari can save/share it from the PDF viewer.";
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      $("finalPdfStatus").textContent = "Could not share PDF: " + e.message;
+    }
+  }
+}
+
 let LAST_PNG_BLOB = null;
 let LAST_PNG_NAME = "";
 
@@ -725,8 +968,10 @@ function loadSaved() {
 
 $("saveAsPlanogram").addEventListener("click", saveAsNamedPlanogram);
 $("exportPng").addEventListener("click", exportPlanogramPNG);
-$("generateFinalPng").addEventListener("click", generateFinalPNG);
-$("shareFinalPng").addEventListener("click", shareFinalPNG);
+$("generateFinalPdf").addEventListener("click", generateFinalPDF);
+$("shareFinalPdf").addEventListener("click", shareFinalPDF);
+$("openFinalPdf").addEventListener("click", openFinalPDF);
+$("downloadFinalPdf").addEventListener("click", downloadFinalPDF);
 $("openPng").addEventListener("click", openPlanogramPNG);
 $("sharePng").addEventListener("click", sharePlanogramPNG);
 

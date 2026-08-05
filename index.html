@@ -147,13 +147,14 @@
 <div class="card">
 <div class="dbname">Generate Final Planogram</div>
 <div class="small" style="margin:6px 0 10px">
-Creates a PNG showing every column, card, and saved status.
+Creates a PDF showing every column, card, and saved status.
 </div>
 <div class="savegrid">
-<button id="generateFinalPng" class="primary">Generate Final PNG</button>
-<button id="shareFinalPng">Share Final PNG</button>
+<button id="generateFinalPdf" class="primary">Generate Final PDF</button>
+<button id="shareFinalPdf">Share Final PDF</button>
 </div>
-<div id="finalPngStatus" class="small" style="margin-top:8px"></div>
+<div class="savegrid" style="margin-top:8px"><button id="openFinalPdf">Open PDF</button><button id="downloadFinalPdf">Download PDF</button></div>
+<div id="finalPdfStatus" class="small" style="margin-top:8px"></div>
 </div>
 
 <div class="card">
@@ -170,6 +171,7 @@ Creates a PNG showing every column, card, and saved status.
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
