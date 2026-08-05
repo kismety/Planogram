@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Planogram Reset App</title>
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Planogram Reset">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+<h1>Planogram Reset App</h1>
+<div id="fileLabel" class="small">Upload your converted Excel planogram to begin. Progress saves on this device.</div>
+<nav>
+<button id="navUpload" class="active">Upload Excel</button>
+<button id="navReset">Reset</button>
+<button id="navDatabase">Database</button>
+</nav>
+<div id="resetTools" style="display:none">
+<input id="search" placeholder="Search card name…">
+<div class="filters">
+<select id="colFilter"><option value="">All columns</option></select>
+<select id="statusFilter">
+<option value="">All statuses</option>
+<option value="Not Complete">Not Complete</option>
+<option value="Complete">Complete</option>
+<option value="Missing">Missing</option>
+</select>
+</div>
+<div id="tabs" class="tabs"></div>
+<div id="progressText" class="small"></div>
+<div class="progress"><div id="fill" class="fill"></div></div>
+</div>
+</header>
+
+<main>
+<section id="upload" class="screen show">
+<div class="uploadbox">
+<div style="font-size:19px;font-weight:800">Upload Planogram Excel</div>
+<div class="small" style="margin-top:5px">Use the Excel file converted from your paper planogram.</div>
+<input id="xlsxFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+</div>
+<div id="uploadStatus" class="notice">The app looks for <b>Reset Database</b> first, then <b>Extracted Positions</b>, then uses the first usable sheet. Everything is processed on your device.</div>
+<div class="card">
+<div class="dbname">Expected columns</div>
+<div class="meta">Card Name • Denomination • Category • Column • Row • Position. Extra columns are okay.</div>
+</div>
+<div class="card">
+<button id="clearData" style="width:100%">Clear saved planogram & progress</button>
+</div>
+</section>
+
+<section id="reset" class="screen">
+<div class="summary">
+<div class="metric"><b id="mComplete">0</b><span class="small">Complete</span></div>
+<div class="metric"><b id="mRemaining">0</b><span class="small">Not Complete</span></div>
+<div class="metric"><b id="mMissing">0</b><span class="small">Missing</span></div>
+</div>
+<div id="resetList"></div>
+</section>
+
+<section id="database" class="screen">
+<input id="dbSearch" placeholder="Search imported database…">
+<div id="dbCount" class="small" style="margin-top:8px"></div>
+<div id="dbList"></div>
+</section>
+</main>
+
+<footer id="footer">
+<button id="prev">← Previous column</button>
+<button id="next" class="primary">Next column →</button>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
