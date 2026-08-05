@@ -52,15 +52,7 @@
 <input id="storeName" placeholder="e.g. Loblaws Clareview">
 <label class="fieldlabel">Planogram Name</label>
 <input id="planogramName" placeholder="e.g. 4x4 End Cap">
-<div class="savegrid" style="margin-top:8px">
-<button id="saveAsPlanogram" class="primary">Save Planogram</button>
-<button id="exportPng">Export PNG</button>
-</div>
-<div id="pngStatus" class="small" style="margin-top:8px"></div>
-<div class="savegrid" style="margin-top:8px">
-<button id="openPng">Open PNG</button>
-<button id="sharePng">Share PNG</button>
-</div>
+<button id="saveAsPlanogram" class="primary" style="width:100%;margin-top:8px">Save Planogram</button>
 </div>
 <div class="card">
 <div class="dbname">Save & Backup</div>
@@ -77,12 +69,25 @@
 
 <section id="reset" class="screen">
 <div class="card bulkcard">
-<div class="dbname">Bulk Update</div>
-<div class="small">Applies to the positions currently shown by your column/search/status filters.</div>
+<div class="dbname">Bulk Checklist</div>
+<div class="small">Use Current Column for the column you are working on, or ALL Planogram for every position.</div>
+
+<div class="bulksection">
+<div class="bulklabel">CURRENT COLUMN</div>
 <div class="bulkgrid">
-<button id="bulkComplete" class="primary">✓ All Complete</button>
-<button id="bulkNotComplete">All Not Complete</button>
-<button id="bulkMissing">All Missing</button>
+<button id="columnComplete" class="statusGreen">✓ Complete Column</button>
+<button id="columnMissing" class="statusYellow">Missing Column</button>
+<button id="columnNotComplete" class="statusRed">Not Complete Column</button>
+</div>
+</div>
+
+<div class="bulksection">
+<div class="bulklabel">ALL PLANOGRAM</div>
+<div class="bulkgrid">
+<button id="allComplete" class="statusGreen">✓ Complete ALL</button>
+<button id="allMissing" class="statusYellow">Missing ALL</button>
+<button id="allNotComplete" class="statusRed">Not Complete ALL</button>
+</div>
 </div>
 </div>
 <div class="summary">
@@ -128,18 +133,19 @@
 
 <section id="final" class="screen">
 <div class="card">
-<div class="dbname">Final Review</div>
-<div class="small">Verify the reset before generating the final planogram.</div>
+<div class="dbname">Progress Review</div>
+<div class="small">Live summary of how much of the reset is complete, missing, or still not complete.</div>
 </div>
 
-<div class="summary">
+<div class="summary progress4">
+<div class="metric"><b id="finalTotal">0</b><span class="small">Total Items</span></div>
 <div class="metric"><b id="finalComplete">0</b><span class="small">Complete</span></div>
-<div class="metric"><b id="finalRemaining">0</b><span class="small">Not Complete</span></div>
 <div class="metric"><b id="finalMissing">0</b><span class="small">Missing</span></div>
+<div class="metric"><b id="finalRemaining">0</b><span class="small">Not Complete</span></div>
 </div>
 
 <div class="card">
-<div class="dbname">Completion Status</div>
+<div class="dbname">Overall Progress</div>
 <div id="finalMessage" class="small" style="margin-top:6px"></div>
 <div class="progress"><div id="finalFill" class="fill"></div></div>
 </div>
@@ -158,7 +164,12 @@ Creates a PDF showing every column, card, and saved status.
 </div>
 
 <div class="card">
-<div class="dbname">Outstanding Positions</div>
+<div class="dbname">Progress by Column</div>
+<div id="columnProgressList"></div>
+</div>
+
+<div class="card">
+<div class="dbname">Outstanding & Missing Items</div>
 <div id="outstandingList"></div>
 </div>
 </section>

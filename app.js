@@ -234,51 +234,79 @@ function collectStatusesForData(rows) {
 
 
 function finalCounts() {
-  const complete = DATA.filter(r => getStatus(r) === "Complete").length;
-  const missing = DATA.filter(r => getStatus(r) === "Missing").length;
-  const notComplete = DATA.filter(r => getStatus(r) === "Not Complete").length;
-  return {complete, missing, notComplete, total: DATA.length};
+  const counts = {complete:0, missing:0, notComplete:0, total:DATA.length};
+  DATA.forEach(r => {
+    const s = getStatus(r);
+    if (s === "Complete") counts.complete++;
+    else if (s === "Missing") counts.missing++;
+    else counts.notComplete++;
+  });
+  return counts;
 }
 
 function renderFinalReview() {
   if (!$("finalComplete")) return;
 
   const counts = finalCounts();
+  $("finalTotal").textContent = counts.total;
   $("finalComplete").textContent = counts.complete;
   $("finalMissing").textContent = counts.missing;
   $("finalRemaining").textContent = counts.notComplete;
 
-  const pct = counts.total ? Math.round(counts.complete / counts.total * 100) : 0;
-  $("finalFill").style.width = pct + "%";
+  const progressPct = counts.total ? Math.round((counts.complete / counts.total) * 100) : 0;
+  const resolvedPct = counts.total ? Math.round(((counts.complete + counts.missing) / counts.total) * 100) : 0;
+
+  $("finalFill").style.width = progressPct + "%";
 
   if (!counts.total) {
     $("finalMessage").textContent = "No planogram loaded.";
+    $("columnProgressList").innerHTML = "";
     $("outstandingList").innerHTML = '<div class="small">Upload a planogram first.</div>';
     return;
   }
 
-  if (counts.notComplete === 0) {
-    $("finalMessage").textContent =
-      "Reset review complete. " + counts.complete + " positions are complete and " +
-      counts.missing + " are marked missing.";
-  } else {
-    $("finalMessage").textContent =
-      pct + "% complete. " + counts.notComplete + " positions still need a final decision.";
+  $("finalMessage").textContent =
+    `${progressPct}% complete • ${counts.complete} complete • ${counts.missing} missing • ${counts.notComplete} not complete • ${resolvedPct}% reviewed`;
+
+  // Progress by column
+  const cols = columns();
+  $("columnProgressList").innerHTML = cols.map(c => {
+    const rows = DATA.filter(r => r.column === c);
+    const complete = rows.filter(r => getStatus(r) === "Complete").length;
+    const missing = rows.filter(r => getStatus(r) === "Missing").length;
+    const notComplete = rows.length - complete - missing;
+    const pct = rows.length ? Math.round((complete / rows.length) * 100) : 0;
+
+    return `<div class="colprogress">
+      <div class="colprogress-head">
+        <span>${esc(c)}</span>
+        <span>${complete}/${rows.length} complete • ${missing} missing • ${notComplete} not complete</span>
+      </div>
+      <div class="colbar"><div class="colbarfill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
+
+  const outstanding = DATA
+    .filter(r => getStatus(r) !== "Complete")
+    .sort((a,b) =>
+      columnNumber(a.column)-columnNumber(b.column) ||
+      rowNumber(a.row)-rowNumber(b.row)
+    );
+
+  if (!outstanding.length) {
+    $("outstandingList").innerHTML =
+      '<div class="finalrow status-complete"><b>✓ All items are complete.</b></div>';
+    return;
   }
 
-  const outstanding = DATA.filter(r => getStatus(r) !== "Complete")
-    .sort((a,b) => columnNumber(a.column)-columnNumber(b.column) || rowNumber(a.row)-rowNumber(b.row));
-
-  $("outstandingList").innerHTML = outstanding.length
-    ? outstanding.map(r => {
-        const s = getStatus(r);
-        const cls = s === "Missing" ? "status-missing" : "status-notcomplete";
-        return `<div class="finalrow ${cls}">
-          <b>${esc(r.position)} — ${esc(r.card)}</b>
-          <span class="small">${esc(s)}${r.denomination ? " • " + esc(r.denomination) : ""}</span>
-        </div>`;
-      }).join("")
-    : '<div class="finalrow status-complete"><b>All positions complete.</b></div>';
+  $("outstandingList").innerHTML = outstanding.map(r => {
+    const s = getStatus(r);
+    const cls = s === "Missing" ? "status-missing" : "status-notcomplete";
+    return `<div class="finalrow ${cls}">
+      <b>${esc(r.position || r.column)} — ${esc(r.card)}</b>
+      <span class="small">${esc(s)}${r.denomination ? " • " + esc(r.denomination) : ""}</span>
+    </div>`;
+  }).join("");
 }
 
 async function buildFinalPlanogramBlob() {
@@ -318,7 +346,7 @@ async function buildFinalPlanogramBlob() {
   ctx.font = "16px Arial";
   ctx.fillStyle = "#555555";
   ctx.fillText(
-    `Final Reset • ${counts.complete} Complete • ${counts.missing} Missing • ${counts.notComplete} Not Complete`,
+    `Reset Progress • ${counts.complete}/${counts.total} Complete • ${counts.missing} Missing • ${counts.notComplete} Not Complete`,
     margin, 112
   );
   ctx.fillText(new Date().toLocaleString(), margin, 136);
@@ -441,9 +469,9 @@ let LAST_PDF_BLOB = null;
 let LAST_PDF_NAME = "";
 
 function pdfColorForStatus(status) {
-  if (status === "Complete") return [231,244,228];
-  if (status === "Missing") return [253,233,231];
-  return [255,246,217];
+  if (status === "Complete") return [231,245,229];
+  if (status === "Missing") return [255,243,191];
+  return [253,226,226];
 }
 
 async function buildFinalPlanogramPDFBlob() {
@@ -490,9 +518,9 @@ async function buildFinalPlanogramPDFBlob() {
     // legend
     const ly = pageH - 7;
     const legend = [
-      [[231,244,228],"Complete"],
-      [[253,233,231],"Missing"],
-      [[255,246,217],"Not Complete"]
+      [[231,245,229],"Complete"],
+      [[255,243,191],"Missing"],
+      [[253,226,226],"Not Complete"]
     ];
     let lx = margin;
     legend.forEach(([rgb,label]) => {
@@ -571,9 +599,9 @@ async function buildFinalPlanogramPDFBlob() {
 
         doc.setFont("helvetica","bold");
         doc.setFontSize(6.5);
-        if (status === "Complete") doc.setTextColor(45,106,45);
-        else if (status === "Missing") doc.setTextColor(169,68,66);
-        else doc.setTextColor(138,109,0);
+        if (status === "Complete") doc.setTextColor(47,125,50);
+        else if (status === "Missing") doc.setTextColor(145,106,0);
+        else doc.setTextColor(160,55,55);
         doc.text(status, drawX+2, y+13);
 
         if (r.denomination) {
@@ -967,13 +995,13 @@ function loadSaved() {
 }
 
 $("saveAsPlanogram").addEventListener("click", saveAsNamedPlanogram);
-$("exportPng").addEventListener("click", exportPlanogramPNG);
+
 $("generateFinalPdf").addEventListener("click", generateFinalPDF);
 $("shareFinalPdf").addEventListener("click", shareFinalPDF);
 $("openFinalPdf").addEventListener("click", openFinalPDF);
 $("downloadFinalPdf").addEventListener("click", downloadFinalPDF);
-$("openPng").addEventListener("click", openPlanogramPNG);
-$("sharePng").addEventListener("click", sharePlanogramPNG);
+
+
 
 $("xlsxFile").addEventListener("change", async e => {
   const f = e.target.files?.[0];
@@ -1068,20 +1096,26 @@ function currentRows() {
 
 function cardHtml(r) {
   const status = getStatus(r);
+  const statusClass =
+    status === "Complete" ? "card-complete" :
+    status === "Missing" ? "card-missing" :
+    "card-notcomplete";
+
   return `
-  <div class="card">
+  <div class="card ${statusClass}">
     <div class="line">
       <div class="pos">${esc(r.position || r.column)}</div>
       <div class="name">
         ${esc(r.card)}
         ${r.denomination ? `<div class="meta">Denomination: ${esc(r.denomination)}</div>` : ""}
         ${r.category ? `<div class="meta">Category: ${esc(r.category)}</div>` : ""}
+        <div class="meta"><b>Status: ${esc(status)}</b></div>
       </div>
     </div>
     <div class="actions">
       <button class="complete ${status==="Complete"?"active":""}" data-id="${esc(r.id)}" data-status="Complete">✓ Complete</button>
-      <button class="notcomplete ${status==="Not Complete"?"active":""}" data-id="${esc(r.id)}" data-status="Not Complete">Not Complete</button>
       <button class="missing ${status==="Missing"?"active":""}" data-id="${esc(r.id)}" data-status="Missing">Missing</button>
+      <button class="notcomplete ${status==="Not Complete"?"active":""}" data-id="${esc(r.id)}" data-status="Not Complete">Not Complete</button>
     </div>
   </div>`;
 }
@@ -1105,6 +1139,9 @@ function renderReset() {
       setStatus(r, b.dataset.status);
       renderReset();
       renderFinalReview();
+      renderDatabase();
+      renderFinalReview();
+      renderFinalReview();
     });
   });
 
@@ -1125,21 +1162,48 @@ function updateSummary() {
 }
 
 
-function applyBulkStatus(status) {
-  if (!DATA.length) return;
-  const rows = currentRows();
-  if (!rows.length) return;
-  const label = rows.length + " visible position" + (rows.length===1 ? "" : "s");
-  if (!confirm("Set " + label + " to " + status + "?")) return;
-  rows.forEach(r => setStatus(r, status));
+
+function setRowsStatus(rows, status) {
+  if (!DATA.length || !rows.length) return;
+  rows.forEach(r => {
+    localStorage.setItem(statusKey(r), status);
+  });
   saveAll(false);
   renderReset();
+  renderDatabase();
   renderFinalReview();
 }
 
-$("bulkComplete").addEventListener("click", () => applyBulkStatus("Complete"));
-$("bulkNotComplete").addEventListener("click", () => applyBulkStatus("Not Complete"));
-$("bulkMissing").addEventListener("click", () => applyBulkStatus("Missing"));
+function currentColumnRowsForBulk() {
+  const col = $("colFilter").value || currentCol;
+  if (!col) return [];
+  return DATA.filter(r => r.column === col);
+}
+
+function setCurrentColumnStatus(status) {
+  const rows = currentColumnRowsForBulk();
+  if (!rows.length) {
+    alert("No current column is selected.");
+    return;
+  }
+  setRowsStatus(rows, status);
+}
+
+function setAllPlanogramStatus(status) {
+  if (!DATA.length) {
+    alert("Upload a planogram first.");
+    return;
+  }
+  setRowsStatus(DATA, status);
+}
+
+$("columnComplete").addEventListener("click", () => setCurrentColumnStatus("Complete"));
+$("columnMissing").addEventListener("click", () => setCurrentColumnStatus("Missing"));
+$("columnNotComplete").addEventListener("click", () => setCurrentColumnStatus("Not Complete"));
+
+$("allComplete").addEventListener("click", () => setAllPlanogramStatus("Complete"));
+$("allMissing").addEventListener("click", () => setAllPlanogramStatus("Missing"));
+$("allNotComplete").addEventListener("click", () => setAllPlanogramStatus("Not Complete"));
 
 $("search").addEventListener("input", renderReset);
 $("statusFilter").addEventListener("change", renderReset);

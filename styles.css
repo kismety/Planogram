@@ -51,3 +51,44 @@ nav{grid-template-columns:repeat(5,1fr)}
 .status-notcomplete{background:#fff6d9;border-left:5px solid #b58a00}
 .finalrow{padding:10px;border-radius:10px;margin:7px 0}
 .finalrow b{display:block}
+
+/* Final status colors: green complete, yellow missing, red not complete */
+.card.card-complete{
+  background:#e7f5e5 !important;
+  border:2px solid #5f9b54 !important;
+}
+.card.card-missing{
+  background:#fff3bf !important;
+  border:2px solid #d6a700 !important;
+}
+.card.card-notcomplete{
+  background:#fde2e2 !important;
+  border:2px solid #c85a5a !important;
+}
+.actions .complete.active,.statusGreen{
+  background:#2f7d32 !important;color:#fff !important;border-color:#2f7d32 !important;
+}
+.actions .missing.active,.statusYellow{
+  background:#f2c94c !important;color:#111 !important;border-color:#c99a00 !important;font-weight:800;
+}
+.actions .notcomplete.active,.statusRed{
+  background:#c94b4b !important;color:#fff !important;border-color:#c94b4b !important;font-weight:800;
+}
+.bulksection{margin-top:12px}
+.bulklabel{font-size:12px;font-weight:800;color:#555;margin-bottom:6px}
+.bulkgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+@media(max-width:560px){.bulkgrid{grid-template-columns:1fr}}
+
+.status-missing{background:#fff3bf !important;border-left:5px solid #d6a700 !important}
+.status-notcomplete{background:#fde2e2 !important;border-left:5px solid #c85a5a !important}
+.status-complete{background:#e7f5e5 !important;border-left:5px solid #5f9b54 !important}
+
+.progress4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:600px){.progress4{grid-template-columns:repeat(2,1fr)}}
+.colprogress{margin:10px 0}
+.colprogress-head{display:flex;justify-content:space-between;gap:10px;font-size:13px;font-weight:700}
+.colbar{height:8px;background:#ddd;border-radius:99px;overflow:hidden;margin-top:5px}
+.colbarfill{height:100%;background:#2f7d32}
+.status-missing{background:#fff3bf!important;border-left:5px solid #d6a700!important}
+.status-notcomplete{background:#fde2e2!important;border-left:5px solid #c85a5a!important}
+.status-complete{background:#e7f5e5!important;border-left:5px solid #5f9b54!important}
