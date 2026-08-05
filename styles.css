@@ -24,3 +24,14 @@ input,select{width:100%;padding:11px;border:1px solid #bbb;border-radius:10px;ba
 .dbname{font-size:17px;font-weight:750}.pill{display:inline-block;background:#eee;border-radius:999px;padding:4px 8px;font-size:11px;margin:4px 4px 0 0}
 footer{position:fixed;bottom:0;left:0;right:0;z-index:20;background:rgba(255,255,255,.97);border-top:1px solid #ddd;padding:9px 12px max(9px,env(safe-area-inset-bottom));display:none;grid-template-columns:1fr 1fr;gap:8px}
 footer.show{display:grid}
+.savegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#saveStatus.saved{color:#1a6b2b;font-weight:700}
+
+nav{grid-template-columns:repeat(4,1fr)}
+.planrow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.planmeta{font-size:12px;color:#666;margin-top:5px}
+.planbuttons{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.planbuttons button{flex:1}
+
+.fieldlabel{display:block;font-size:12px;font-weight:700;color:#555;margin:9px 0 5px}
+.savedstore{font-size:13px;font-weight:700;margin-top:4px}

@@ -17,6 +17,7 @@
 <button id="navUpload" class="active">Upload Excel</button>
 <button id="navReset">Reset</button>
 <button id="navDatabase">Database</button>
+<button id="navPlans">Saved Plans</button>
 </nav>
 <div id="resetTools" style="display:none">
 <input id="search" placeholder="Search card name…">
@@ -43,6 +44,28 @@
 <input id="xlsxFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
 </div>
 <div id="uploadStatus" class="notice">The app reads Reset Database first, then Extracted Positions.</div>
+<div class="card">
+<div class="dbname">Save as a Planogram</div>
+<div class="small" style="margin:6px 0">After importing Excel, name this reset so it stays in your Saved Plans.</div>
+<label class="fieldlabel">Store Name</label>
+<input id="storeName" placeholder="e.g. Loblaws Clareview">
+<label class="fieldlabel">Planogram Name</label>
+<input id="planogramName" placeholder="e.g. 4x4 End Cap">
+<div class="savegrid" style="margin-top:8px">
+<button id="saveAsPlanogram" class="primary">Save Planogram</button>
+<button id="exportPng">Export PNG</button>
+</div>
+</div>
+<div class="card">
+<div class="dbname">Save & Backup</div>
+<div class="small" id="saveStatus" style="margin:6px 0 10px">Progress auto-saves on this device.</div>
+<div class="savegrid">
+<button id="saveNow" class="primary">Save Progress</button>
+<button id="downloadBackup">Download Backup</button>
+</div>
+<input id="backupFile" type="file" accept=".json,application/json" style="margin-top:10px">
+<button id="restoreBackup" style="width:100%;margin-top:8px">Restore Backup File</button>
+</div>
 <div class="card"><button id="clearData" style="width:100%">Clear saved planogram & progress</button></div>
 </section>
 
@@ -60,6 +83,16 @@
 <div id="dbCount" class="small" style="margin-top:8px"></div>
 <div id="dbList"></div>
 </section>
+
+<section id="plans" class="screen">
+<div class="card">
+<div class="dbname">Saved Planograms</div>
+<div class="small">Tap a planogram to reopen it with its saved reset progress.</div>
+</div>
+<div id="plansList"></div>
+</section>
+
+<canvas id="exportCanvas" style="display:none"></canvas>
 </main>
 
 <footer id="footer">
