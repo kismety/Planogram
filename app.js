@@ -7,6 +7,7 @@ let currentStoreAddress = "";
 let currentStoreCity = "";
 let currentStoreId = "";
 let currentScanImage = "";
+let currentScanFileName = "";
 let PDF_EXTRACTED_ROWS = [];
 let GENERATED_PDF_XLSX = null;
 let GENERATED_PDF_XLSX_NAME = "";
@@ -25,7 +26,8 @@ function show(screen) {
   $("resetTools").style.display = onReset ? "block" : "none";
   $("footer").classList.toggle("show", onReset);
 
-  if (onReset) renderReset();
+  if (onReset) updateAttachmentPreview();
+renderReset();
   if (screen === "database") renderDatabase();
 renderStores();
   if (screen === "stores") renderStores();
@@ -436,6 +438,142 @@ function saveImported() {
   localStorage.setItem("planogram_imported_filename", fileName);
 }
 
+
+
+function updateAttachmentPreview() {
+  if (!$("scanPreview")) return;
+  if (currentScanImage) {
+    $("scanPreview").src = currentScanImage;
+    $("scanPreview").style.display = "block";
+    $("scanStatus").textContent = "✓ Attachment ready. Save Planogram to retain it.";
+    $("scanFileName").textContent = currentScanFileName || "Attached image";
+  } else {
+    $("scanPreview").removeAttribute("src");
+    $("scanPreview").style.display = "none";
+    $("scanStatus").textContent = "No attachment.";
+    $("scanFileName").textContent = "";
+  }
+}
+
+function compressAttachedImage(file) {
+  return new Promise((resolve,reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read selected image."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Could not load selected image."));
+      img.onload = () => {
+        const maxDimension = 1800;
+        const scale = Math.min(1, maxDimension / Math.max(img.naturalWidth,img.naturalHeight));
+        const w = Math.max(1,Math.round(img.naturalWidth*scale));
+        const h = Math.max(1,Math.round(img.naturalHeight*scale));
+        const c = document.createElement("canvas");
+        c.width=w; c.height=h;
+        const ctx=c.getContext("2d");
+        ctx.drawImage(img,0,0,w,h);
+        resolve(c.toDataURL("image/jpeg",0.82));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function attachImageFile(file) {
+  if (!file) return;
+  try {
+    $("scanStatus").textContent = "Attaching…";
+    currentScanImage = await compressAttachedImage(file);
+    currentScanFileName = file.name || "Planogram photo";
+    updateAttachmentPreview();
+  } catch(e) {
+    $("scanStatus").textContent = "Attachment failed: " + e.message;
+  }
+}
+
+
+function collectAllPlannoData() {
+  const local = {};
+  for (let i=0;i<localStorage.length;i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (
+      key.startsWith("planogram_") ||
+      key.startsWith("saved_planogram|") ||
+      key.startsWith("pgstatus|") ||
+      key === "saved_planograms_index" ||
+      key === "planogram_stores"
+    ) {
+      local[key] = localStorage.getItem(key);
+    }
+  }
+  return {
+    app:"Planno",
+    backupVersion:1,
+    exportedAt:new Date().toISOString(),
+    active:{
+      fileName,currentCol,currentStore,currentStoreAddress,currentStoreCity,currentStoreId,
+      currentScanImage,currentScanFileName,
+      data:Array.isArray(DATA)?DATA:[]
+    },
+    localStorage:local
+  };
+}
+
+function exportAllJson() {
+  try {
+    saveAll(false);
+    const blob = new Blob([JSON.stringify(collectAllPlannoData(),null,2)],{type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download="Planno_ALL_DATA_"+new Date().toISOString().slice(0,10)+".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+    $("allJsonStatus").textContent="✓ ALL Planno data exported.";
+  } catch(e) {
+    $("allJsonStatus").textContent="Export failed: "+e.message;
+  }
+}
+
+async function importAllJson(file) {
+  const backup=JSON.parse(await file.text());
+  if (!backup || backup.app!=="Planno" || !backup.localStorage) {
+    throw new Error("Not a valid Planno backup.");
+  }
+
+  Object.entries(backup.localStorage).forEach(([k,v])=>{
+    if (v!==null && v!==undefined) localStorage.setItem(k,String(v));
+  });
+
+  const a=backup.active||{};
+  DATA=Array.isArray(a.data)?a.data:DATA;
+  fileName=a.fileName||fileName;
+  currentCol=a.currentCol||currentCol;
+  currentStore=a.currentStore||"";
+  currentStoreAddress=a.currentStoreAddress||"";
+  currentStoreCity=a.currentStoreCity||"";
+  currentStoreId=a.currentStoreId||"";
+  currentScanImage=a.currentScanImage||"";
+  currentScanFileName=a.currentScanFileName||"";
+
+  if ($("storeName")) $("storeName").value=currentStore;
+  if ($("storeAddress")) $("storeAddress").value=currentStoreAddress;
+  if ($("storeAddressSearch")) $("storeAddressSearch").value=currentStoreAddress;
+  if ($("storeCity")) $("storeCity").value=currentStoreCity;
+  if ($("storeId")) $("storeId").value=currentStoreId;
+
+  saveImported();
+  afterLoad();
+  updateAttachmentPreview();
+  renderStores();
+  renderSavedPlans();
+  renderDatabase();
+  renderReset();
+  renderFinalReview();
+}
 
 function saveAll(showMessage=true) {
   try {
@@ -1764,6 +1902,7 @@ function saveAsNamedPlannogram() {
     storeCity,
     storeId,
     scanImage: currentScanImage || "",
+    scanFileName: currentScanFileName || "",
     fileName,
     savedAt: new Date().toISOString(),
     currentCol,
@@ -1816,6 +1955,7 @@ function openSavedPlannogram(id) {
     currentStoreCity = record.storeCity || "";
     currentStoreId = record.storeId || "";
     currentScanImage = record.scanImage || "";
+    currentScanFileName = record.scanFileName || "";
     if ($("planogramName")) $("planogramName").value = record.name || "";
     if ($("storeName")) $("storeName").value = record.store || "";
     if ($("storeLookup")) $("storeLookup").value = [record.store,record.storeAddress].filter(Boolean).join(" — ");
@@ -1823,6 +1963,7 @@ function openSavedPlannogram(id) {
     if ($("storeAddressSearch")) $("storeAddressSearch").value = record.storeAddress || "";
     if ($("storeCity")) $("storeCity").value = record.storeCity || "";
     if ($("storeId")) $("storeId").value = record.storeId || "";
+    updateAttachmentPreview();
     if ($("scanPreview")) {
       if (currentScanImage) {
         $("scanPreview").src = currentScanImage;
@@ -1961,18 +2102,7 @@ $("openCurrentMap").addEventListener("click", () => {
   openAddressInGoogleMaps(q);
 });
 
-$("scanImage").addEventListener("change", e => {
-  const f = e.target.files?.[0];
-  if (!f) return;
-  const r = new FileReader();
-  r.onload = () => {
-    currentScanImage = r.result;
-    $("scanPreview").src = currentScanImage;
-    $("scanPreview").style.display = "block";
-    $("scanStatus").textContent = "✓ Plannogram image attached. Save the planogram to retain it.";
-  };
-  r.readAsDataURL(f);
-});
+
 
 $("saveAsPlannogram").addEventListener("click", saveAsNamedPlannogram);
 
@@ -2394,6 +2524,44 @@ $("clearData").addEventListener("click", () => {
   $("uploadStatus").textContent = "Saved planogram and progress cleared.";
   renderReset();
   renderDatabase();
+});
+
+
+$("takePhotoBtn").addEventListener("click", () => $("cameraInput").click());
+$("choosePhotoBtn").addEventListener("click", () => $("filePhotoInput").click());
+
+$("cameraInput").addEventListener("change", e => {
+  const f = e.target.files?.[0];
+  if (f) attachImageFile(f);
+  e.target.value = "";
+});
+
+$("filePhotoInput").addEventListener("change", e => {
+  const f = e.target.files?.[0];
+  if (f) attachImageFile(f);
+  e.target.value = "";
+});
+
+$("removeScanImage").addEventListener("click", () => {
+  currentScanImage = "";
+  currentScanFileName = "";
+  updateAttachmentPreview();
+});
+
+
+$("exportAllJson").addEventListener("click", exportAllJson);
+$("importAllJsonBtn").addEventListener("click", () => $("importAllJsonFile").click());
+$("importAllJsonFile").addEventListener("change", async e => {
+  const f=e.target.files?.[0];
+  if (!f) return;
+  try {
+    $("allJsonStatus").textContent="Importing backup…";
+    await importAllJson(f);
+    $("allJsonStatus").textContent="✓ ALL Planno data restored.";
+  } catch(err) {
+    $("allJsonStatus").textContent="Import failed: "+err.message;
+  }
+  e.target.value="";
 });
 
 loadSaved();

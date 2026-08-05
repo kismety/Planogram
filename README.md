@@ -1,43 +1,28 @@
-# Planno — Final Build
+# Planno — Attachment + JSON Backup
 
-## Main workflow
-1. Find/select the store.
-2. Store Name, Full Address and Store ID are retained.
-3. Upload the original text-based PDF planogram OR upload Excel.
-4. PDF is converted into the standardized Excel/database structure.
-5. Planno uses that structure for:
-   - Database
-   - Reset checklist
-   - Visual planogram
-   - Progress
-   - PNG
-   - Final PDF report
+## Attach Planogram
+Two explicit options:
+- **Take Photo** — opens the phone camera.
+- **Attach File / Photo** — choose an existing image from Photos or Files.
 
-## Gift-card display
-Each planogram slot displays:
-- Card Name
-- Card Value directly underneath
+The attached image is compressed for storage, previews in Planno, and is saved with the named planogram.
 
-Database fields keep Card Name and Card Value separate for searching/filtering.
+## Where the data is normally saved
+Planno is hosted on GitHub Pages. Its normal saved data lives in Safari/browser **localStorage on that device**.
 
-## Final one-page PDF
-The final PDF uses the same visual layout as the PNG and contains:
-- Store Name
-- Store ID
-- Full Address
-- Planogram Name
-- Date
-- Total items
-- Complete
-- Missing
-- Not Complete
-- Completion percentage
-- Full C1...Cn / R1...Rn visual planogram
-- Card Name + Card Value in each slot
+This includes:
+- saved stores and addresses
+- saved planograms
+- imported Excel/PDF rows
+- Complete / Missing / Not Complete statuses
+- active progress
 
-Status:
-- Green = Complete
-- Yellow = Missing
-- Red = Not Complete
+## Export ALL Data
+Use **Export ALL Data (.json)** to create one backup file containing:
+- all Planno localStorage records
+- active planogram data
+- store information
+- checklist statuses
+- attached planogram image
 
-The PDF is intentionally scaled to ONE PAGE.
+Use **Import ALL Data (.json)** to restore the backup on the same or another device/browser.

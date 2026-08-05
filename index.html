@@ -108,6 +108,26 @@ No PDF loaded.
 
 </div>
 <div id="uploadStatus" class="notice">The app reads Reset Database first, then Extracted Positions.</div>
+<div class="card">
+<div class="dbname">Attach Planogram</div>
+<div class="small" style="margin:6px 0 10px">
+Attach a reference image to this saved planogram.
+</div>
+
+<div class="attachgrid">
+<button id="takePhotoBtn" class="primary">Take Photo</button>
+<button id="choosePhotoBtn">Attach File / Photo</button>
+</div>
+
+<input id="cameraInput" type="file" accept="image/*" capture="environment" style="display:none">
+<input id="filePhotoInput" type="file" accept="image/jpeg,image/png,image/webp,image/*" style="display:none">
+
+<img id="scanPreview" class="scanpreview" style="display:none" alt="Attached planogram">
+<div id="scanFileName" class="small" style="margin-top:7px"></div>
+
+<button id="removeScanImage" style="width:100%;margin-top:8px">Remove Attachment</button>
+<div id="scanStatus" class="small" style="margin-top:8px">No attachment.</div>
+</div>
 
 <div class="card">
 <div class="dbname">Scan / Attach Plannogram</div>
@@ -154,6 +174,18 @@ Edit any OCR mistakes, then create the planogram.
 <label class="fieldlabel">Plannogram Name</label>
 <input id="planogramName" placeholder="e.g. 4x4 End Cap">
 <button id="saveAsPlannogram" class="primary" style="width:100%;margin-top:8px">Save Plannogram</button>
+</div>
+<div class="card" id="allDataBackupCard">
+<div class="dbname">Planno Backup</div>
+<div class="small" style="margin:6px 0 10px">
+Save every store, address, planogram, checklist status, database row and attached photo in one JSON backup.
+</div>
+<div class="savegrid">
+<button id="exportAllJson" class="primary">Export ALL Data (.json)</button>
+<button id="importAllJsonBtn">Import ALL Data (.json)</button>
+</div>
+<input id="importAllJsonFile" type="file" accept=".json,application/json" style="display:none">
+<div id="allJsonStatus" class="small" style="margin-top:8px"></div>
 </div>
 <div class="card">
 <div class="dbname">Save & Backup</div>

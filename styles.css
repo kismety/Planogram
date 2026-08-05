@@ -220,3 +220,6 @@ nav{grid-template-columns:repeat(6,1fr)}
 }
 
 .card-value{font-weight:800;font-size:12px;margin-top:3px;color:#333}
+
+.attachgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:520px){.attachgrid{grid-template-columns:1fr}}
