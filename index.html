@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Planogram Reset">
-<title>Planogram Reset App</title>
+<meta name="apple-mobile-web-app-title" content="Plano">
+<title>Plano</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header>
-<h1>Planogram Reset App</h1>
+<h1>Plano</h1>
 <div id="fileLabel" class="small">Upload your converted Excel planogram to begin.</div>
 <nav>
 <button id="navStores">Stores</button>
@@ -60,6 +60,7 @@
 <button id="saveStore" class="primary">Save Store</button>
 <button id="clearStoreForm">Clear</button>
 </div>
+<button id="findStoreMgrGoogle" style="width:100%;margin-top:8px">Find this Store on Google Maps</button>
 </div>
 
 <div class="card">
@@ -134,7 +135,13 @@ Edit any OCR mistakes, then create the planogram.
 <input id="storeCity" placeholder="e.g. Edmonton, AB">
 <label class="fieldlabel">Store / Location ID</label>
 <input id="storeId" placeholder="Optional">
-<button id="openCurrentMap" style="width:100%;margin-top:8px">Open Address in Google Maps</button>
+<div class="savegrid" style="margin-top:8px">
+<button id="findStoreGoogle" class="primary">Find Store on Google</button>
+<button id="openCurrentMap">Open Saved Address</button>
+</div>
+<div class="small" style="margin-top:6px">
+Google search uses Store Name + City. Choose the correct result, then copy the address back here if needed.
+</div>
 <label class="fieldlabel">Planogram Name</label>
 <input id="planogramName" placeholder="e.g. 4x4 End Cap">
 <button id="saveAsPlanogram" class="primary" style="width:100%;margin-top:8px">Save Planogram</button>
@@ -242,6 +249,13 @@ Edit any OCR mistakes, then create the planogram.
 Green = Complete • Yellow = Missing • Red = Not Complete
 </div>
 <div id="visualPlanogram" class="visual-planogram"></div>
+
+<div class="png-actions">
+<button id="generatePlanoPng" class="primary">Generate PNG</button>
+<button id="sharePlanoPng">Share PNG</button>
+</div>
+<div id="planoPngStatus" class="small" style="margin-top:8px"></div>
+<img id="planoPngPreview" class="plano-png-preview" style="display:none" alt="Plano visual export">
 </div>
 
 <div class="card">
@@ -268,6 +282,7 @@ Creates a PDF showing every column, card, and saved status.
 </div>
 </section>
 
+<canvas id="planoExportCanvas" style="display:none"></canvas>
 </main>
 
 <footer id="footer">

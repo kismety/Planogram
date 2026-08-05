@@ -480,6 +480,12 @@ function saveStoreIndex(list) {
 function storeKey(name,address,city) {
   return [name,address,city].map(x=>String(x||"").trim().toLowerCase()).join("|");
 }
+
+function googleStoreSearchUrl(name, city) {
+  const q = [name, city].filter(Boolean).join(", ");
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+}
+
 function mapsUrl(address, city) {
   const q = [address, city].filter(Boolean).join(", ");
   return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
@@ -638,6 +644,182 @@ function renderVisualPlanogram() {
       }).join("")}
     </div>`;
   }).join("");
+}
+
+
+let PLANO_PNG_BLOB = null;
+let PLANO_PNG_NAME = "";
+
+async function buildPlanoPNG() {
+  if (!DATA.length) throw new Error("Upload or create a planogram first.");
+
+  const store = ($("storeName")?.value || currentStore || "Store").trim();
+  const address = ($("storeAddress")?.value || currentStoreAddress || "").trim();
+  const city = ($("storeCity")?.value || currentStoreCity || "").trim();
+  const planName = ($("planogramName")?.value || fileName || "Planogram").trim();
+  const cols = columns();
+  if (!cols.length) throw new Error("No columns found.");
+
+  const grouped = {};
+  cols.forEach(c => {
+    grouped[c] = DATA.filter(r => r.column === c)
+      .sort((a,b) => rowNumber(a.row)-rowNumber(b.row));
+  });
+
+  const colW = 300;
+  const gap = 16;
+  const margin = 36;
+  const headerH = 140;
+  const rowH = 78;
+  const maxRows = Math.max(...cols.map(c => grouped[c].length), 1);
+
+  const canvas = $("planoExportCanvas");
+  const ctx = canvas.getContext("2d");
+
+  canvas.width = margin*2 + cols.length*colW + Math.max(0, cols.length-1)*gap;
+  canvas.height = headerH + 48 + maxRows*rowH + 70;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Header
+  ctx.fillStyle = "#111111";
+  ctx.font = "bold 34px Arial";
+  ctx.fillText(store, margin, 42);
+
+  ctx.font = "bold 25px Arial";
+  ctx.fillText(planName, margin, 78);
+
+  ctx.fillStyle = "#555555";
+  ctx.font = "15px Arial";
+  const location = [address, city].filter(Boolean).join(", ");
+  if (location) ctx.fillText(location, margin, 104);
+
+  const counts = finalCounts();
+  ctx.font = "14px Arial";
+  ctx.fillText(
+    `${counts.total} Total • ${counts.complete} Complete • ${counts.missing} Missing • ${counts.notComplete} Not Complete`,
+    margin, 128
+  );
+
+  cols.forEach((c, ci) => {
+    const x = margin + ci*(colW+gap);
+
+    ctx.fillStyle = "#111111";
+    ctx.fillRect(x, headerH, colW, 44);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 21px Arial";
+    ctx.fillText(c, x+12, headerH+29);
+
+    grouped[c].forEach((r, ri) => {
+      const y = headerH + 44 + ri*rowH;
+      const status = getStatus(r);
+
+      // Requested colors
+      if (status === "Complete") ctx.fillStyle = "#e7f5e5";
+      else if (status === "Missing") ctx.fillStyle = "#fff3bf";
+      else ctx.fillStyle = "#fde2e2";
+
+      ctx.fillRect(x,y,colW,rowH);
+      ctx.strokeStyle = "#cfcfcf";
+      ctx.strokeRect(x,y,colW,rowH);
+
+      ctx.fillStyle = "#111111";
+      ctx.font = "bold 13px Arial";
+      ctx.fillText(r.position || `${c}-${r.row}`, x+9, y+18);
+
+      ctx.font = "14px Arial";
+      const label = String(r.card||"");
+      const shortLabel = label.length > 34 ? label.slice(0,33)+"…" : label;
+      ctx.fillText(shortLabel, x+9, y+41);
+
+      if (status === "Complete") ctx.fillStyle = "#2f7d32";
+      else if (status === "Missing") ctx.fillStyle = "#946e00";
+      else ctx.fillStyle = "#a33c3c";
+
+      ctx.font = "bold 12px Arial";
+      ctx.fillText(status, x+9, y+61);
+
+      if (r.denomination) {
+        ctx.fillStyle = "#666666";
+        ctx.font = "11px Arial";
+        ctx.fillText(String(r.denomination), x+colW-8, y+61, 95);
+      }
+    });
+  });
+
+  // Legend
+  const ly = canvas.height - 34;
+  const legend = [
+    ["#e7f5e5","Complete"],
+    ["#fff3bf","Missing"],
+    ["#fde2e2","Not Complete"]
+  ];
+  let lx = margin;
+  legend.forEach(([color,label]) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(lx,ly,22,22);
+    ctx.strokeStyle = "#bbb";
+    ctx.strokeRect(lx,ly,22,22);
+    ctx.fillStyle = "#111";
+    ctx.font = "13px Arial";
+    ctx.fillText(label,lx+30,ly+16);
+    lx += 150;
+  });
+
+  const blob = await new Promise((resolve,reject) => {
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error("PNG generation failed.")), "image/png");
+  });
+
+  const safeStore = store.replace(/[^a-z0-9_-]+/gi,"_");
+  const safePlan = planName.replace(/[^a-z0-9_-]+/gi,"_");
+  PLANO_PNG_NAME = `${safeStore}_${safePlan}.png`;
+  PLANO_PNG_BLOB = blob;
+
+  return {blob,name:PLANO_PNG_NAME};
+}
+
+async function generatePlanoPNG() {
+  try {
+    const {blob,name} = await buildPlanoPNG();
+    const url = URL.createObjectURL(blob);
+
+    // Most reliable iPhone behavior: show the generated image visibly in the page.
+    $("planoPngPreview").src = url;
+    $("planoPngPreview").style.display = "block";
+    $("planoPngStatus").textContent =
+      "✓ PNG generated below. On iPhone, press and hold the image or tap Share PNG.";
+
+    $("planoPngPreview").scrollIntoView({behavior:"smooth",block:"start"});
+  } catch (e) {
+    $("planoPngStatus").textContent = "PNG failed: " + e.message;
+  }
+}
+
+async function sharePlanoPNG() {
+  try {
+    const result = PLANO_PNG_BLOB
+      ? {blob:PLANO_PNG_BLOB,name:PLANO_PNG_NAME}
+      : await buildPlanoPNG();
+
+    const file = new File([result.blob], result.name, {type:"image/png"});
+
+    if (navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({title:"Plano", files:[file]});
+      $("planoPngStatus").textContent = "✓ PNG shared.";
+    } else {
+      const url = URL.createObjectURL(result.blob);
+      $("planoPngPreview").src = url;
+      $("planoPngPreview").style.display = "block";
+      $("planoPngStatus").textContent =
+        "PNG is shown below. Press and hold it to save/share from Safari.";
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      $("planoPngStatus").textContent = "Could not share PNG: " + e.message;
+    }
+  }
 }
 
 function renderFinalReview() {
@@ -1144,7 +1326,7 @@ async function buildPlanogramPNGBlob() {
   ctx.fillText(planName, margin, 80);
   ctx.fillStyle = "#666666";
   ctx.font = "16px Arial";
-  ctx.fillText("Planogram Reset Layout", margin, 106);
+  ctx.fillText("Plano Layout", margin, 106);
 
   cols.forEach((c, ci) => {
     const x = margin + ci*(colWidth+gap);
@@ -1496,6 +1678,21 @@ $("clearStoreForm").addEventListener("click", () => {
 });
 $("storeSearch").addEventListener("input", renderStores);
 
+
+$("findStoreGoogle").addEventListener("click", () => {
+  const name = $("storeName").value.trim();
+  const city = $("storeCity").value.trim();
+  if (!name) { alert("Enter the store name first."); return; }
+  window.open(googleStoreSearchUrl(name, city), "_blank");
+});
+
+$("findStoreMgrGoogle").addEventListener("click", () => {
+  const name = $("storeMgrName").value.trim();
+  const city = $("storeMgrCity").value.trim();
+  if (!name) { alert("Enter the store name first."); return; }
+  window.open(googleStoreSearchUrl(name, city), "_blank");
+});
+
 $("openCurrentMap").addEventListener("click", () => {
   const address = $("storeAddress").value.trim();
   const city = $("storeCity").value.trim();
@@ -1726,6 +1923,9 @@ $("columnNotComplete").addEventListener("click", () => setCurrentColumnStatus("N
 $("allComplete").addEventListener("click", () => setAllPlanogramStatus("Complete"));
 $("allMissing").addEventListener("click", () => setAllPlanogramStatus("Missing"));
 $("allNotComplete").addEventListener("click", () => setAllPlanogramStatus("Not Complete"));
+
+$("generatePlanoPng").addEventListener("click", generatePlanoPNG);
+$("sharePlanoPng").addEventListener("click", sharePlanoPNG);
 
 $("search").addEventListener("input", renderReset);
 $("statusFilter").addEventListener("change", renderReset);

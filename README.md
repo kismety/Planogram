@@ -1,23 +1,24 @@
-# Planogram Reset App — Final Build
+# Plano
 
-Features:
-- Stores with Store Name, Address, City, Store ID
-- Google Maps links
+Mobile-first planogram reset app.
+
+## Included
+- Stores with name, address, city and store/location ID
+- Google Maps store lookup from Store Name + City
+- Open saved address in Google Maps
 - Excel import
-- Scan/photo attachment retained with planogram
-- OCR-assisted Scan -> structured Column/Row data
-- Review/edit extracted OCR rows
-- Export extracted scan to Excel
-- Save planograms by store
-- Saved planograms + progress
+- Scan/photo attachment
+- OCR-assisted scan extraction
+- Review/edit extracted rows
+- Export extracted Excel
+- Saved planograms by store
 - Complete / Missing / Not Complete checklist
 - Bulk status controls
 - Search/filter database
-- One-page visual Progress dashboard
+- Live visual progress dashboard
+- PNG visual planogram export in-page + iPhone share
 - PDF export
 
-## GitHub Pages
-Upload index.html, app.js, styles.css to the repository root and deploy main / root via GitHub Pages.
-
-## OCR note
-OCR extraction runs in the browser using Tesseract.js. It is assisted extraction, not guaranteed perfect. Always review uncertain rows before saving.
+### Important
+True automatic Google address autofill requires Google Places API credentials.
+This GitHub Pages build avoids exposing a private API key by using Google Maps search URLs.

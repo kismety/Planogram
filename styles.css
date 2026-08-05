@@ -170,3 +170,14 @@ nav{grid-template-columns:repeat(6,1fr)}
   }
   .extractrow .denomfield,.extractrow .catfield{grid-column:2}
 }
+
+.png-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.plano-png-preview{
+  width:100%;
+  height:auto;
+  border:1px solid #ddd;
+  border-radius:12px;
+  margin-top:10px;
+  background:#fff;
+}
+@media(max-width:520px){.png-actions{grid-template-columns:1fr}}
