@@ -14,11 +14,12 @@
 <h1>Planogram Reset App</h1>
 <div id="fileLabel" class="small">Upload your converted Excel planogram to begin.</div>
 <nav>
+<button id="navStores">Stores</button>
 <button id="navUpload" class="active">Upload Excel</button>
 <button id="navReset">Reset</button>
 <button id="navDatabase">Database</button>
 <button id="navPlans">Saved Plans</button>
-<button id="navFinal">Final Review</button>
+<button id="navFinal">Progress</button>
 </nav>
 <div id="resetTools" style="display:none">
 <input id="search" placeholder="Search card name…">
@@ -38,6 +39,36 @@
 </header>
 
 <main>
+
+<section id="stores" class="screen">
+<div class="card">
+<div class="dbname">Stores</div>
+<div class="small">Save locations once, then attach planograms and progress to the correct store.</div>
+</div>
+
+<div class="card">
+<div class="dbname">Add / Update Store</div>
+<label class="fieldlabel">Store Name</label>
+<input id="storeMgrName" placeholder="e.g. Loblaws Clareview">
+<label class="fieldlabel">Street Address</label>
+<input id="storeMgrAddress" placeholder="e.g. 137 Ave NW">
+<label class="fieldlabel">City</label>
+<input id="storeMgrCity" placeholder="e.g. Edmonton, AB">
+<label class="fieldlabel">Store / Location ID</label>
+<input id="storeMgrId" placeholder="Optional">
+<div class="savegrid" style="margin-top:8px">
+<button id="saveStore" class="primary">Save Store</button>
+<button id="clearStoreForm">Clear</button>
+</div>
+</div>
+
+<div class="card">
+<input id="storeSearch" placeholder="Search stores or addresses…">
+</div>
+
+<div id="storesList"></div>
+</section>
+
 <section id="upload" class="screen show">
 <div class="uploadbox">
 <div style="font-size:19px;font-weight:800">Upload Planogram Excel</div>
@@ -45,11 +76,65 @@
 <input id="xlsxFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
 </div>
 <div id="uploadStatus" class="notice">The app reads Reset Database first, then Extracted Positions.</div>
+
+<div class="card">
+<div class="dbname">Scan / Attach Planogram</div>
+<div class="small" style="margin:6px 0 8px">
+Take a photo or choose an image. It will be retained with this saved store + planogram.
+</div>
+<input id="scanImage" type="file" accept="image/*" capture="environment">
+<img id="scanPreview" class="scanpreview" style="display:none">
+<div id="scanStatus" class="small" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
+<div class="dbname">Extract Scan into Planogram</div>
+<div class="small" style="margin:6px 0 10px">
+OCR-assisted extraction. For best results, take the photo straight-on and fill the frame with the planogram.
+</div>
+<div class="filters">
+<div>
+<label class="fieldlabel">Number of Columns</label>
+<input id="scanColumns" type="number" min="1" max="30" value="8">
+</div>
+<div>
+<label class="fieldlabel">Rows per Column</label>
+<input id="scanRows" type="number" min="1" max="40" value="12">
+</div>
+</div>
+<div class="savegrid" style="margin-top:10px">
+<button id="extractScan" class="primary">Extract Scan</button>
+<button id="clearExtracted">Clear Extracted</button>
+</div>
+<div id="extractStatus" class="notice" style="margin-top:10px">
+Photo extraction is OCR-assisted. Review the result before saving the planogram.
+</div>
+</div>
+
+<div class="card" id="extractedReviewCard" style="display:none">
+<div class="dbname">Review Extracted Positions</div>
+<div class="small" style="margin:6px 0 10px">
+Edit any OCR mistakes, then create the planogram.
+</div>
+<div id="extractedReviewList"></div>
+<div class="savegrid" style="margin-top:10px">
+<button id="createFromScan" class="primary">Create Planogram from Scan</button>
+<button id="exportExtractedExcel">Export Extracted Excel</button>
+</div>
+</div>
+
 <div class="card">
 <div class="dbname">Save as a Planogram</div>
 <div class="small" style="margin:6px 0">After importing Excel, name this reset so it stays in your Saved Plans.</div>
 <label class="fieldlabel">Store Name</label>
 <input id="storeName" placeholder="e.g. Loblaws Clareview">
+<label class="fieldlabel">Street Address</label>
+<input id="storeAddress" placeholder="e.g. 137 Ave NW">
+<label class="fieldlabel">City</label>
+<input id="storeCity" placeholder="e.g. Edmonton, AB">
+<label class="fieldlabel">Store / Location ID</label>
+<input id="storeId" placeholder="Optional">
+<button id="openCurrentMap" style="width:100%;margin-top:8px">Open Address in Google Maps</button>
 <label class="fieldlabel">Planogram Name</label>
 <input id="planogramName" placeholder="e.g. 4x4 End Cap">
 <button id="saveAsPlanogram" class="primary" style="width:100%;margin-top:8px">Save Planogram</button>
@@ -133,10 +218,11 @@
 
 <section id="final" class="screen">
 <div class="card">
-<div class="dbname">Progress Review</div>
+<div class="dbname">Reset Progress</div>
 <div class="small">Live summary of how much of the reset is complete, missing, or still not complete.</div>
 </div>
 
+<div id="progressIdentity" class="card" style="font-weight:800"></div>
 <div class="summary progress4">
 <div class="metric"><b id="finalTotal">0</b><span class="small">Total Items</span></div>
 <div class="metric"><b id="finalComplete">0</b><span class="small">Complete</span></div>
@@ -148,6 +234,14 @@
 <div class="dbname">Overall Progress</div>
 <div id="finalMessage" class="small" style="margin-top:6px"></div>
 <div class="progress"><div id="finalFill" class="fill"></div></div>
+</div>
+
+<div class="card">
+<div class="dbname">Live Planogram View</div>
+<div class="small" style="margin:6px 0 10px">
+Green = Complete • Yellow = Missing • Red = Not Complete
+</div>
+<div id="visualPlanogram" class="visual-planogram"></div>
 </div>
 
 <div class="card">
@@ -183,6 +277,7 @@ Creates a PDF showing every column, card, and saved status.
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

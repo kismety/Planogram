@@ -3,6 +3,35 @@ let DATA = [];
 let currentCol = "";
 let fileName = "";
 let currentStore = "";
+let currentStoreAddress = "";
+let currentStoreCity = "";
+let currentStoreId = "";
+let currentScanImage = "";
+let EXTRACTED_SCAN_ROWS = [];
+
+const KNOWN_PRODUCTS = [
+  ["Sephora","Retail / Beauty"],["Xbox","Gaming"],["PlayStation","Gaming"],
+  ["Nintendo","Gaming"],["Roblox","Gaming"],["Google Play","Gaming / Digital"],
+  ["Boston Pizza","Dining"],["The Keg","Dining"],["Keg","Dining"],
+  ["Starbucks","Dining"],["Tim Hortons","Dining"],["Subway","Dining"],
+  ["DoorDash","Dining"],["Uber Eats","Dining"],["Dairy Queen","Dining"],
+  ["McDonald's","Dining"],["Wendy's","Dining"],["Moxies","Dining"],
+  ["Earls","Dining"],["Cactus Club Cafe","Dining"],["Chop Steakhouse","Dining"],
+  ["Home Depot","Home"],["Home Hardware","Home"],["IKEA","Home"],["RONA","Home"],
+  ["Homesense","Retail / Home"],["Urban Barn","Home"],["JYSK","Home"],
+  ["PetSmart","Pets"],["Pet Valu","Pets"],["Esso","Fuel / Auto"],
+  ["WestJet","Travel"],["Air Canada","Travel"],["Hotels.com","Travel"],["Uber","Travel / Transportation"],
+  ["Amazon","Retail / Online"],["Best Buy","Retail / Electronics"],["Staples","Retail / Office"],
+  ["Dollarama","Retail"],["Michaels","Retail / Crafts"],["Golf Town","Retail / Sports"],
+  ["Cabela's","Retail / Sports"],["Sport Chek","Retail / Sports"],["Sporting Life","Retail / Sports"],
+  ["Lululemon","Retail / Fashion"],["Roots","Retail / Fashion"],["Winners","Retail"],
+  ["Marshalls","Retail"],["Indigo","Retail / Books"],["Apple","Digital / Technology"],
+  ["Visa","Open Loop / Payment"],["Mastercard","Open Loop / Payment"],
+  ["One4all","Multi-brand"],["Happy Teen","Multi-brand"],["Happy Kid","Multi-brand"],
+  ["Happy Birthday","Multi-brand"],["Happy Moments","Multi-brand"],["Home Sweet Home","Multi-brand"],
+  ["Retail Therapy","Multi-brand"],["Fun & Fabulous","Multi-brand"],["Let's Eat","Multi-brand"],
+  ["Cheers To You","Multi-brand"],["Game & Grub","Multi-brand"]
+];
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({
@@ -21,10 +50,13 @@ function show(screen) {
 
   if (onReset) renderReset();
   if (screen === "database") renderDatabase();
+renderStores();
+  if (screen === "stores") renderStores();
   if (screen === "final") renderFinalReview();
 renderSavedPlans();
 }
 
+$("navStores").addEventListener("click", () => { show("stores"); renderStores(); });
 $("navUpload").addEventListener("click", () => show("upload"));
 $("navReset").addEventListener("click", () => show("reset"));
 $("navDatabase").addEventListener("click", () => show("database"));
@@ -208,6 +240,341 @@ async function restoreBackupFromFile(file) {
 }
 
 
+
+
+function normalizeOcrText(s) {
+  return String(s || "")
+    .replace(/[|_[\]{}]/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function categoryForProduct(name) {
+  const low = String(name||"").toLowerCase();
+  const sorted = [...KNOWN_PRODUCTS].sort((a,b)=>b[0].length-a[0].length);
+  for (const [brand,cat] of sorted) {
+    if (low.includes(brand.toLowerCase())) return cat;
+  }
+  return "";
+}
+
+function levenshtein(a,b) {
+  a=String(a||"").toLowerCase(); b=String(b||"").toLowerCase();
+  const m=a.length,n=b.length;
+  const dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
+  for(let i=0;i<=m;i++)dp[i][0]=i;
+  for(let j=0;j<=n;j++)dp[0][j]=j;
+  for(let i=1;i<=m;i++){
+    for(let j=1;j<=n;j++){
+      dp[i][j]=Math.min(
+        dp[i-1][j]+1,
+        dp[i][j-1]+1,
+        dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1)
+      );
+    }
+  }
+  return dp[m][n];
+}
+
+function normalizeKnownProduct(raw) {
+  const clean = normalizeOcrText(raw);
+  if (!clean) return {name:"",category:"",confidence:"Low"};
+  let best=null, bestScore=Infinity;
+  for (const [brand,cat] of KNOWN_PRODUCTS) {
+    const score=levenshtein(clean,brand);
+    const norm=score/Math.max(clean.length,brand.length,1);
+    if (norm<bestScore) {
+      bestScore=norm;
+      best={brand,cat};
+    }
+  }
+  if (best && bestScore<=0.28) return {name:best.brand,category:best.cat,confidence:"Medium"};
+  const exactCat=categoryForProduct(clean);
+  return {name:clean,category:exactCat,confidence:exactCat?"High":"Low"};
+}
+
+function splitColumnTextToRows(text, rowCount) {
+  let lines = String(text||"")
+    .split(/\n+/)
+    .map(normalizeOcrText)
+    .filter(x=>x.length>=2)
+    .filter(x=>!/^[\d$.,%\- ]+$/.test(x));
+
+  // Merge obvious denomination-only fragments into previous line.
+  const merged=[];
+  for (const line of lines) {
+    if (/^\$?\d+(\s*[-–]\s*\$?\d+)?$/.test(line) && merged.length) {
+      merged[merged.length-1] += " " + line;
+    } else {
+      merged.push(line);
+    }
+  }
+  lines=merged;
+
+  const out=[];
+  for(let i=0;i<rowCount;i++) {
+    const raw = lines[i] || "";
+    const norm = normalizeKnownProduct(raw);
+    const denomMatch = raw.match(/\$?\d+\s*[-–]\s*\$?\d+|\$?\d+/);
+    out.push({
+      raw,
+      name:norm.name || (raw ? raw : "VERIFY - unreadable"),
+      denomination:denomMatch ? denomMatch[0].replace(/\$/g,"") : "",
+      category:norm.category || "",
+      confidence: raw ? norm.confidence : "Low"
+    });
+  }
+  return out;
+}
+
+async function imageToColumnCanvas(img, colIndex, totalCols) {
+  const c=document.createElement("canvas");
+  const colW=img.naturalWidth/totalCols;
+  const scale=Math.max(1,Math.min(2.3,1200/colW));
+  c.width=Math.round(colW*scale);
+  c.height=Math.round(img.naturalHeight*scale);
+  const ctx=c.getContext("2d");
+  ctx.filter="grayscale(1) contrast(1.55)";
+  ctx.drawImage(
+    img,
+    colIndex*colW,0,colW,img.naturalHeight,
+    0,0,c.width,c.height
+  );
+  return c;
+}
+
+async function extractScanToRows() {
+  if (!currentScanImage) throw new Error("Attach a planogram image first.");
+  if (typeof Tesseract === "undefined") throw new Error("OCR engine did not load.");
+
+  const cols=Math.max(1,Math.min(30,Number($("scanColumns").value)||1));
+  const rows=Math.max(1,Math.min(40,Number($("scanRows").value)||1));
+
+  const img=new Image();
+  await new Promise((resolve,reject)=>{
+    img.onload=resolve;
+    img.onerror=()=>reject(new Error("Could not read image."));
+    img.src=currentScanImage;
+  });
+
+  const worker=await Tesseract.createWorker("eng",1,{
+    logger:m=>{
+      if (m.status==="recognizing text") {
+        $("extractStatus").textContent="Reading scan… "+Math.round((m.progress||0)*100)+"%";
+      }
+    }
+  });
+  await worker.setParameters({tessedit_pageseg_mode:"6", preserve_interword_spaces:"1"});
+
+  const extracted=[];
+  for(let ci=0;ci<cols;ci++) {
+    $("extractStatus").textContent=`Reading column C${ci+1} of C${cols}…`;
+    const canvas=await imageToColumnCanvas(img,ci,cols);
+    const result=await worker.recognize(canvas);
+    const parsed=splitColumnTextToRows(result.data.text,rows);
+    parsed.forEach((item,ri)=>{
+      extracted.push({
+        id:`scan|${ci}|${ri}|${Date.now()}`,
+        planogram:$("planogramName").value.trim() || "Scanned Planogram",
+        card:item.name,
+        denomination:item.denomination,
+        category:item.category,
+        column:"C"+(ci+1),
+        row:"R"+(ri+1),
+        position:"C"+(ci+1)+"-R"+(ri+1),
+        notes:item.raw && item.raw!==item.name ? "OCR: "+item.raw : "",
+        confidence:item.confidence
+      });
+    });
+  }
+
+  await worker.terminate();
+  EXTRACTED_SCAN_ROWS=extracted;
+  return extracted;
+}
+
+function renderExtractedReview() {
+  if (!$("extractedReviewList")) return;
+  if (!EXTRACTED_SCAN_ROWS.length) {
+    $("extractedReviewCard").style.display="none";
+    $("extractedReviewList").innerHTML="";
+    return;
+  }
+
+  $("extractedReviewCard").style.display="block";
+  $("extractedReviewList").innerHTML=EXTRACTED_SCAN_ROWS.map((r,i)=>`
+    <div class="extractrow">
+      <div>
+        <div class="extractpos">${esc(r.position)}</div>
+        <div class="extractconf">${esc(r.confidence || "")}</div>
+      </div>
+      <input data-er-name="${i}" value="${esc(r.card)}" placeholder="Card name">
+      <input class="denomfield" data-er-denom="${i}" value="${esc(r.denomination||"")}" placeholder="Denomination">
+      <input class="catfield" data-er-cat="${i}" value="${esc(r.category||"")}" placeholder="Category">
+    </div>
+  `).join("");
+
+  document.querySelectorAll("[data-er-name]").forEach(el=>el.onchange=()=>{
+    const i=Number(el.dataset.erName);
+    EXTRACTED_SCAN_ROWS[i].card=el.value.trim();
+    if (!EXTRACTED_SCAN_ROWS[i].category) {
+      EXTRACTED_SCAN_ROWS[i].category=categoryForProduct(el.value.trim());
+    }
+  });
+  document.querySelectorAll("[data-er-denom]").forEach(el=>el.onchange=()=>{
+    EXTRACTED_SCAN_ROWS[Number(el.dataset.erDenom)].denomination=el.value.trim();
+  });
+  document.querySelectorAll("[data-er-cat]").forEach(el=>el.onchange=()=>{
+    EXTRACTED_SCAN_ROWS[Number(el.dataset.erCat)].category=el.value.trim();
+  });
+}
+
+function createPlanogramFromScan() {
+  if (!EXTRACTED_SCAN_ROWS.length) {
+    alert("Extract the scan first.");
+    return;
+  }
+  DATA=EXTRACTED_SCAN_ROWS.map((r,i)=>({...r,id:`scanrow|${i}|${r.position}|${r.card}`}));
+  fileName=($("planogramName").value.trim() || "Scanned Planogram") + ".scan";
+  currentCol=columns()[0] || "";
+  saveImported();
+  afterLoad();
+  $("uploadStatus").textContent="✓ Scanned planogram created. Review the Reset tab, then Save Planogram.";
+  show("reset");
+}
+
+function exportExtractedExcel() {
+  if (!EXTRACTED_SCAN_ROWS.length) {
+    alert("Extract the scan first.");
+    return;
+  }
+  if (typeof XLSX==="undefined") {
+    alert("Excel export engine did not load.");
+    return;
+  }
+
+  const store=$("storeName").value.trim();
+  const address=$("storeAddress").value.trim();
+  const city=$("storeCity").value.trim();
+  const planName=$("planogramName").value.trim() || "Scanned Planogram";
+
+  const aoa=[["Store Name","Address","City","Planogram Name","Card Name","Denomination","Category","Column","Row","Position","Confidence","Notes"]];
+  EXTRACTED_SCAN_ROWS.forEach(r=>aoa.push([
+    store,address,city,planName,r.card,r.denomination,r.category,r.column,r.row,r.position,r.confidence,r.notes
+  ]));
+
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  XLSX.utils.book_append_sheet(wb,ws,"Extracted Positions");
+  const safe=(store+"_"+planName).replace(/[^a-z0-9_-]+/gi,"_");
+  XLSX.writeFile(wb,safe+"_extracted.xlsx");
+}
+
+function storeIndex() {
+  try { return JSON.parse(localStorage.getItem("planogram_stores") || "[]"); }
+  catch (_) { return []; }
+}
+function saveStoreIndex(list) {
+  localStorage.setItem("planogram_stores", JSON.stringify(list));
+}
+function storeKey(name,address,city) {
+  return [name,address,city].map(x=>String(x||"").trim().toLowerCase()).join("|");
+}
+function mapsUrl(address, city) {
+  const q = [address, city].filter(Boolean).join(", ");
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+}
+function saveStoreRecord(name,address,city,storeId) {
+  name = String(name||"").trim();
+  address = String(address||"").trim();
+  city = String(city||"").trim();
+  storeId = String(storeId||"").trim();
+  if (!name) throw new Error("Store name is required.");
+  if (!address) throw new Error("Store address is required.");
+
+  const list = storeIndex();
+  const key = storeKey(name,address,city);
+  const existing = list.find(s => s.key === key);
+  const rec = {key,name,address,city,storeId,updatedAt:new Date().toISOString()};
+  if (existing) Object.assign(existing, rec);
+  else list.push(rec);
+  list.sort((a,b)=>a.name.localeCompare(b.name));
+  saveStoreIndex(list);
+  return rec;
+}
+function selectStore(rec) {
+  currentStore = rec.name || "";
+  currentStoreAddress = rec.address || "";
+  currentStoreCity = rec.city || "";
+  currentStoreId = rec.storeId || "";
+
+  if ($("storeName")) $("storeName").value = currentStore;
+  if ($("storeAddress")) $("storeAddress").value = currentStoreAddress;
+  if ($("storeCity")) $("storeCity").value = currentStoreCity;
+  if ($("storeId")) $("storeId").value = currentStoreId;
+
+  show("upload");
+}
+function editStoreForm(rec) {
+  $("storeMgrName").value = rec.name || "";
+  $("storeMgrAddress").value = rec.address || "";
+  $("storeMgrCity").value = rec.city || "";
+  $("storeMgrId").value = rec.storeId || "";
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function deleteStore(key) {
+  const list = storeIndex();
+  const rec = list.find(s=>s.key===key);
+  if (!rec) return;
+  if (!confirm('Delete store "' + rec.name + '"?')) return;
+  saveStoreIndex(list.filter(s=>s.key!==key));
+  renderStores();
+}
+function renderStores() {
+  if (!$("storesList")) return;
+  const q = ($("storeSearch")?.value || "").trim().toLowerCase();
+  const list = storeIndex().filter(s =>
+    !q ||
+    s.name.toLowerCase().includes(q) ||
+    (s.address||"").toLowerCase().includes(q) ||
+    (s.city||"").toLowerCase().includes(q) ||
+    (s.storeId||"").toLowerCase().includes(q)
+  );
+
+  if (!list.length) {
+    $("storesList").innerHTML = '<div class="card">No saved stores yet.</div>';
+    return;
+  }
+
+  $("storesList").innerHTML = list.map(s => `
+    <div class="storecard">
+      <div class="storetitle">${esc(s.name)}</div>
+      <div class="storeaddress">${esc([s.address,s.city].filter(Boolean).join(", "))}</div>
+      ${s.storeId ? `<div class="small">Store ID: ${esc(s.storeId)}</div>` : ""}
+      <div class="storeactions">
+        <button class="primary" data-select-store="${esc(s.key)}">Use Store</button>
+        <button data-map-store="${esc(s.key)}">Google Maps</button>
+        <button data-edit-store="${esc(s.key)}">Edit</button>
+      </div>
+      <button data-delete-store="${esc(s.key)}" style="width:100%;margin-top:7px">Delete Store</button>
+    </div>
+  `).join("");
+
+  document.querySelectorAll("[data-select-store]").forEach(b => b.onclick = () => {
+    const rec = storeIndex().find(s=>s.key===b.dataset.selectStore);
+    if (rec) selectStore(rec);
+  });
+  document.querySelectorAll("[data-map-store]").forEach(b => b.onclick = () => {
+    const rec = storeIndex().find(s=>s.key===b.dataset.mapStore);
+    if (rec) window.open(mapsUrl(rec.address,rec.city), "_blank");
+  });
+  document.querySelectorAll("[data-edit-store]").forEach(b => b.onclick = () => {
+    const rec = storeIndex().find(s=>s.key===b.dataset.editStore);
+    if (rec) editStoreForm(rec);
+  });
+  document.querySelectorAll("[data-delete-store]").forEach(b => b.onclick = () => deleteStore(b.dataset.deleteStore));
+}
+
 function savedPlansIndex() {
   try {
     return JSON.parse(localStorage.getItem("saved_planograms_index") || "[]");
@@ -244,10 +611,48 @@ function finalCounts() {
   return counts;
 }
 
+
+function renderVisualPlanogram() {
+  if (!$("visualPlanogram")) return;
+  if (!DATA.length) {
+    $("visualPlanogram").innerHTML = '<div class="small">Upload a planogram to see the visual layout.</div>';
+    return;
+  }
+
+  const cols = columns();
+  $("visualPlanogram").innerHTML = cols.map(c => {
+    const rows = DATA.filter(r => r.column === c)
+      .sort((a,b) => rowNumber(a.row)-rowNumber(b.row));
+
+    return `<div class="visual-column">
+      <div class="visual-column-title">${esc(c)}</div>
+      ${rows.map(r => {
+        const s = getStatus(r);
+        const cls = s === "Complete" ? "complete" : s === "Missing" ? "missing" : "notcomplete";
+        return `<div class="visual-cell ${cls}">
+          <b>${esc(r.position || (c + "-" + r.row))}</b>
+          <div>${esc(r.card)}</div>
+          ${r.denomination ? `<div class="meta">${esc(r.denomination)}</div>` : ""}
+          <div class="visual-status">${esc(s)}</div>
+        </div>`;
+      }).join("")}
+    </div>`;
+  }).join("");
+}
+
 function renderFinalReview() {
   if (!$("finalComplete")) return;
+  renderVisualPlanogram();
 
   const counts = finalCounts();
+  if ($("progressIdentity")) {
+    const store = ($("storeName")?.value || currentStore || "Store").trim();
+    const planName = ($("planogramName")?.value || fileName || "Planogram").trim();
+    const address = ($("storeAddress")?.value || currentStoreAddress || "").trim();
+    const city = ($("storeCity")?.value || currentStoreCity || "").trim();
+    $("progressIdentity").innerHTML = `<div>${esc(store)} • ${esc(planName)}</div>` +
+      ((address||city) ? `<div class="small" style="margin-top:4px">${esc([address,city].filter(Boolean).join(", "))}</div>` : "");
+  }
   $("finalTotal").textContent = counts.total;
   $("finalComplete").textContent = counts.complete;
   $("finalMissing").textContent = counts.missing;
@@ -843,15 +1248,27 @@ function saveAsNamedPlanogram() {
   }
   const name = $("planogramName").value.trim();
   const store = $("storeName").value.trim();
+  const storeAddress = $("storeAddress").value.trim();
+  const storeCity = $("storeCity").value.trim();
+  const storeId = $("storeId").value.trim();
   currentStore = store;
+  currentStoreAddress = storeAddress;
+  currentStoreCity = storeCity;
+  currentStoreId = storeId;
   if (!store) {
     $("uploadStatus").textContent = "Enter the store name first.";
+    return;
+  }
+  if (!storeAddress) {
+    $("uploadStatus").textContent = "Enter the store address first.";
     return;
   }
   if (!name) {
     $("uploadStatus").textContent = "Enter a name for the planogram first.";
     return;
   }
+
+  try { saveStoreRecord(store, storeAddress, storeCity, storeId); } catch (_) {}
 
   const index = savedPlansIndex();
   const existing = index.find(p => p.name.toLowerCase() === name.toLowerCase() && (p.store||"").toLowerCase() === store.toLowerCase());
@@ -861,6 +1278,11 @@ function saveAsNamedPlanogram() {
     id,
     name,
     store,
+    storeAddress,
+    storeCity,
+    storeId,
+    scanImage: currentScanImage || "",
+    extractedRows: EXTRACTED_SCAN_ROWS || [],
     fileName,
     savedAt: new Date().toISOString(),
     currentCol,
@@ -874,6 +1296,9 @@ function saveAsNamedPlanogram() {
   if (existing) {
     existing.savedAt = record.savedAt;
     existing.store = store;
+    existing.storeAddress = storeAddress;
+    existing.storeCity = storeCity;
+    existing.storeId = storeId;
     existing.count = DATA.length;
     existing.fileName = fileName;
   } else {
@@ -881,6 +1306,9 @@ function saveAsNamedPlanogram() {
       id,
       name,
       store,
+      storeAddress,
+      storeCity,
+      storeId,
       savedAt: record.savedAt,
       count: DATA.length,
       fileName
@@ -903,8 +1331,25 @@ function openSavedPlanogram(id) {
     DATA = record.data || [];
     fileName = record.fileName || record.name || "Saved planogram";
     currentStore = record.store || "";
+    currentStoreAddress = record.storeAddress || "";
+    currentStoreCity = record.storeCity || "";
+    currentStoreId = record.storeId || "";
+    currentScanImage = record.scanImage || "";
+    EXTRACTED_SCAN_ROWS = Array.isArray(record.extractedRows) ? record.extractedRows : [];
     if ($("planogramName")) $("planogramName").value = record.name || "";
     if ($("storeName")) $("storeName").value = record.store || "";
+    if ($("storeAddress")) $("storeAddress").value = record.storeAddress || "";
+    if ($("storeCity")) $("storeCity").value = record.storeCity || "";
+    if ($("storeId")) $("storeId").value = record.storeId || "";
+    renderExtractedReview();
+    if ($("scanPreview")) {
+      if (currentScanImage) {
+        $("scanPreview").src = currentScanImage;
+        $("scanPreview").style.display = "block";
+      } else {
+        $("scanPreview").style.display = "none";
+      }
+    }
     currentCol = record.currentCol || "";
 
     if (record.statuses) {
@@ -965,18 +1410,26 @@ function renderSavedPlans() {
         <div>
           <div class="dbname">${esc(p.name)}</div>
           <div class="savedstore">${esc(p.store || "")}</div>
+          <div class="planmeta">${esc([p.storeAddress,p.storeCity].filter(Boolean).join(", "))}</div>
           <div class="planmeta">${p.count || 0} positions${p.fileName ? " • " + esc(p.fileName) : ""}</div>
           <div class="planmeta">Saved ${new Date(p.savedAt).toLocaleString()}</div>
         </div>
       </div>
       <div class="planbuttons">
         <button class="primary" data-open-plan="${esc(p.id)}">Open</button>
+        <button data-map-plan="${esc(p.id)}">Map</button>
         <button data-delete-plan="${esc(p.id)}">Delete</button>
       </div>
     </div>`).join("");
 
   document.querySelectorAll("[data-open-plan]").forEach(b =>
     b.addEventListener("click", () => openSavedPlanogram(b.dataset.openPlan))
+  );
+  document.querySelectorAll("[data-map-plan]").forEach(b =>
+    b.addEventListener("click", () => {
+      const p = savedPlansIndex().find(x=>x.id===b.dataset.mapPlan);
+      if (p && p.storeAddress) window.open(mapsUrl(p.storeAddress,p.storeCity), "_blank");
+    })
   );
   document.querySelectorAll("[data-delete-plan]").forEach(b =>
     b.addEventListener("click", () => deleteSavedPlanogram(b.dataset.deletePlan))
@@ -993,6 +1446,75 @@ function loadSaved() {
     }
   } catch (_) {}
 }
+
+
+
+$("extractScan").addEventListener("click", async () => {
+  try {
+    $("extractStatus").textContent="Preparing OCR…";
+    await extractScanToRows();
+    renderExtractedReview();
+    $("extractStatus").textContent="✓ Extraction complete. Review the rows below before creating the planogram.";
+    $("extractedReviewCard").scrollIntoView({behavior:"smooth",block:"start"});
+  } catch (e) {
+    console.error(e);
+    $("extractStatus").textContent="Extraction failed: "+e.message;
+  }
+});
+
+$("clearExtracted").addEventListener("click", () => {
+  EXTRACTED_SCAN_ROWS=[];
+  renderExtractedReview();
+  $("extractStatus").textContent="Extracted scan cleared.";
+});
+
+$("createFromScan").addEventListener("click", createPlanogramFromScan);
+$("exportExtractedExcel").addEventListener("click", exportExtractedExcel);
+
+$("saveStore").addEventListener("click", () => {
+  try {
+    const rec = saveStoreRecord(
+      $("storeMgrName").value,
+      $("storeMgrAddress").value,
+      $("storeMgrCity").value,
+      $("storeMgrId").value
+    );
+    $("storeMgrName").value = rec.name;
+    $("storeMgrAddress").value = rec.address;
+    $("storeMgrCity").value = rec.city;
+    $("storeMgrId").value = rec.storeId || "";
+    renderStores();
+  } catch (e) {
+    alert(e.message);
+  }
+});
+$("clearStoreForm").addEventListener("click", () => {
+  $("storeMgrName").value="";
+  $("storeMgrAddress").value="";
+  $("storeMgrCity").value="";
+  $("storeMgrId").value="";
+});
+$("storeSearch").addEventListener("input", renderStores);
+
+$("openCurrentMap").addEventListener("click", () => {
+  const address = $("storeAddress").value.trim();
+  const city = $("storeCity").value.trim();
+  if (!address) { alert("Enter a store address first."); return; }
+  window.open(mapsUrl(address,city), "_blank");
+});
+
+$("scanImage").addEventListener("change", e => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    currentScanImage = r.result;
+    $("scanPreview").src = currentScanImage;
+    $("scanPreview").style.display = "block";
+    $("scanStatus").textContent = "✓ Planogram image attached. Save the planogram to retain it.";
+  };
+  r.readAsDataURL(f);
+});
 
 $("saveAsPlanogram").addEventListener("click", saveAsNamedPlanogram);
 
