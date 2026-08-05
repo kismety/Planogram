@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Plano">
-<title>Plano</title>
+<meta name="apple-mobile-web-app-title" content="Planno">
+<title>Planno</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header>
-<h1>Plano</h1>
+<h1>Planno</h1>
 <div id="fileLabel" class="small">Upload your converted Excel planogram to begin.</div>
 <nav>
 <button id="navStores">Stores</button>
@@ -48,15 +48,21 @@
 
 <div class="card">
 <div class="dbname">Add / Update Store</div>
-<label class="fieldlabel">Store Name</label>
-<input id="storeMgrName" placeholder="e.g. Loblaws Clareview">
-<label class="fieldlabel">Address Search</label>
+<label class="fieldlabel">Find Store</label>
 <div class="address-wrap">
-<input id="storeMgrAddressSearch" autocomplete="off" placeholder="Start typing the store address…">
-<div id="storeMgrSuggestions" class="address-suggestions"></div>
+<input id="storeMgrLookup" autocomplete="off" placeholder="Start typing store name or address…">
+<div id="storeMgrLookupSuggestions" class="address-suggestions"></div>
 </div>
+
+<label class="fieldlabel">Store Name</label>
+<input id="storeMgrName" placeholder="Filled automatically">
+
+<label class="fieldlabel">Full Address</label>
+<input id="storeMgrAddressSearch" placeholder="Filled automatically">
+
 <input id="storeMgrAddress" type="hidden">
 <input id="storeMgrCity" type="hidden">
+
 <label class="fieldlabel">Store / Location ID</label>
 <input id="storeMgrId" placeholder="Optional">
 <div class="savegrid" style="margin-top:8px">
@@ -75,14 +81,14 @@
 
 <section id="upload" class="screen show">
 <div class="uploadbox">
-<div style="font-size:19px;font-weight:800">Upload Planogram Excel</div>
+<div style="font-size:19px;font-weight:800">Upload Plannogram Excel</div>
 <div class="small" style="margin-top:5px">Choose the Excel file converted from the paper planogram.</div>
 <input id="xlsxFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
 </div>
 <div id="uploadStatus" class="notice">The app reads Reset Database first, then Extracted Positions.</div>
 
 <div class="card">
-<div class="dbname">Scan / Attach Planogram</div>
+<div class="dbname">Scan / Attach Plannogram</div>
 <div class="small" style="margin:6px 0 8px">
 Take a photo or choose an image. It will be retained with this saved store + planogram.
 </div>
@@ -96,29 +102,36 @@ Edit any OCR mistakes, then create the planogram.
 </div>
 <div id="extractedReviewList"></div>
 <div class="savegrid" style="margin-top:10px">
-<button id="createFromScan" class="primary">Create Planogram from Scan</button>
+<button id="createFromScan" class="primary">Create Plannogram from Scan</button>
 <button id="exportExtractedExcel">Export Extracted Excel</button>
 </div>
 </div>
 
 <div class="card">
-<div class="dbname">Save as a Planogram</div>
+<div class="dbname">Save as a Plannogram</div>
 <div class="small" style="margin:6px 0">After importing Excel, name this reset so it stays in your Saved Plans.</div>
-<label class="fieldlabel">Store Name</label>
-<input id="storeName" placeholder="e.g. Loblaws Clareview">
-<label class="fieldlabel">Address Search</label>
+<label class="fieldlabel">Find Store</label>
 <div class="address-wrap">
-<input id="storeAddressSearch" autocomplete="off" placeholder="Start typing the store address…">
-<div id="addressSuggestions" class="address-suggestions"></div>
+<input id="storeLookup" autocomplete="off" placeholder="Start typing store name or address…">
+<div id="storeLookupSuggestions" class="address-suggestions"></div>
 </div>
+
+<label class="fieldlabel">Store Name</label>
+<input id="storeName" placeholder="Filled automatically">
+
+<label class="fieldlabel">Full Address</label>
+<input id="storeAddressSearch" placeholder="Filled automatically">
+
 <input id="storeAddress" type="hidden">
 <input id="storeCity" type="hidden">
+
 <label class="fieldlabel">Store / Location ID</label>
 <input id="storeId" placeholder="Optional">
+
 <button id="openCurrentMap" class="primary" style="width:100%;margin-top:8px">Open in Google Maps</button>
-<label class="fieldlabel">Planogram Name</label>
+<label class="fieldlabel">Plannogram Name</label>
 <input id="planogramName" placeholder="e.g. 4x4 End Cap">
-<button id="saveAsPlanogram" class="primary" style="width:100%;margin-top:8px">Save Planogram</button>
+<button id="saveAsPlannogram" class="primary" style="width:100%;margin-top:8px">Save Plannogram</button>
 </div>
 <div class="card">
 <div class="dbname">Save & Backup</div>
@@ -136,7 +149,7 @@ Edit any OCR mistakes, then create the planogram.
 <section id="reset" class="screen">
 <div class="card bulkcard">
 <div class="dbname">Bulk Checklist</div>
-<div class="small">Use Current Column for the column you are working on, or ALL Planogram for every position.</div>
+<div class="small">Use Current Column for the column you are working on, or ALL Plannogram for every position.</div>
 
 <div class="bulksection">
 <div class="bulklabel">CURRENT COLUMN</div>
@@ -189,7 +202,7 @@ Edit any OCR mistakes, then create the planogram.
 
 <section id="plans" class="screen">
 <div class="card">
-<div class="dbname">Saved Planograms</div>
+<div class="dbname">Saved Plannograms</div>
 <div class="small">Tap a planogram to reopen it with its saved reset progress.</div>
 </div>
 <div id="plansList"></div>
@@ -218,25 +231,26 @@ Edit any OCR mistakes, then create the planogram.
 </div>
 
 <div class="card">
-<div class="dbname">Live Planogram View</div>
+<div class="dbname">Live Plannogram View</div>
 <div class="small" style="margin:6px 0 10px">
 Built directly from the imported Excel Column + Row positions. Green = Complete • Yellow = Missing • Red = Not Complete.
 </div>
-<div id="visualPlanogram" class="visual-planogram"></div>
+<div id="visualPlannogram" class="visual-planogram"></div>
 
+<div id="pdfReportSummary" class="report-summary"></div>
 <div class="png-actions">
-<button id="generatePlanoPng" class="primary">Generate PNG</button>
-<button id="sharePlanoPng">Share PNG</button>
-<button id="generatePlanoPdf" class="primary">Generate One-Page PDF</button>
-<button id="sharePlanoPdf">Share PDF</button>
+<button id="generatePlannoPng" class="primary">Generate PNG</button>
+<button id="sharePlannoPng">Share PNG</button>
+<button id="generatePlannoPdf" class="primary">Generate Final PDF Report</button>
+<button id="sharePlannoPdf">Share Final PDF</button>
 </div>
 <div id="planoPngStatus" class="small" style="margin-top:8px"></div>
 <div id="planoPdfStatus" class="small" style="margin-top:4px"></div>
-<img id="planoPngPreview" class="plano-png-preview" style="display:none" alt="Plano visual export">
+<img id="planoPngPreview" class="plano-png-preview" style="display:none" alt="Planno visual export">
 </div>
 
 <div class="card">
-<div class="dbname">Generate Final Planogram</div>
+<div class="dbname">Generate Final Plannogram</div>
 <div class="small" style="margin:6px 0 10px">
 Creates a PDF showing every column, card, and saved status.
 </div>

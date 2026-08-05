@@ -145,7 +145,7 @@ function saveAll(showMessage=true) {
       const sname = $("storeName") ? $("storeName").value.trim() : "";
       if (pname) {
         const match = savedPlansIndex().find(p => p.name.toLowerCase() === pname.toLowerCase() && (!sname || (p.store||"").toLowerCase()===sname.toLowerCase()));
-        if (match) updateSavedPlanogram(match.id);
+        if (match) updateSavedPlannogram(match.id);
       }
     } catch (_) {}
     return true;
@@ -198,12 +198,13 @@ function downloadBackup() {
 async function restoreBackupFromFile(file) {
   const txt = await file.text();
   const backup = JSON.parse(txt);
-  if (!backup || !Array.isArray(backup.data)) throw new Error("This is not a valid Planogram backup.");
+  if (!backup || !Array.isArray(backup.data)) throw new Error("This is not a valid Plannogram backup.");
   DATA = backup.data;
   fileName = backup.fileName || "Restored planogram";
   currentStore = backup.currentStore || "";
   currentCol = backup.currentCol || "";
   if ($("storeName")) $("storeName").value = currentStore;
+  if ($("storeLookup")) $("storeLookup").value = [currentStore,currentStoreAddress].filter(Boolean).join(" — ");
   localStorage.setItem("planogram_imported_rows", JSON.stringify(DATA));
   localStorage.setItem("planogram_imported_filename", fileName);
   if (backup.statuses && typeof backup.statuses === "object") {
@@ -257,25 +258,34 @@ let addressTimer = null;
 
 function formatPhotonFeature(f) {
   const p = f.properties || {};
+  const name = p.name || p.street || "";
   const street = [p.housenumber, p.street].filter(Boolean).join(" ");
   const city = p.city || p.town || p.village || p.locality || "";
   const province = p.state || "";
   const postcode = p.postcode || "";
   const country = p.country || "Canada";
-  const full = [street || p.name, city, province, postcode, country].filter(Boolean).join(", ");
-  return {full, city: [city, province].filter(Boolean).join(", "), label: full};
+  const address = [street, city, province, postcode, country].filter(Boolean).join(", ");
+  const label = [name, address].filter(Boolean).join(" — ");
+  return {
+    name: name || "",
+    address: address || "",
+    city: [city, province].filter(Boolean).join(", "),
+    label
+  };
 }
 
-async function searchAddresses(query) {
+async function searchStores(query) {
   if (!query || query.trim().length < 3) return [];
-  const url = "https://photon.komoot.io/api/?limit=6&q=" + encodeURIComponent(query.trim() + ", Canada");
+  const url = "https://photon.komoot.io/api/?limit=8&lang=en&q=" + encodeURIComponent(query.trim() + ", Canada");
   const resp = await fetch(url);
-  if (!resp.ok) throw new Error("Address lookup unavailable.");
+  if (!resp.ok) throw new Error("Store lookup unavailable.");
   const data = await resp.json();
-  return (data.features || []).map(formatPhotonFeature).filter(x=>x.full);
+  return (data.features || [])
+    .map(formatPhotonFeature)
+    .filter(x => x.name || x.address);
 }
 
-function bindAddressAutocomplete(inputId, suggestionsId, hiddenAddressId, hiddenCityId) {
+function bindStoreLookup(inputId, suggestionsId, nameId, addressTextId, hiddenAddressId, hiddenCityId) {
   const input = $(inputId);
   const box = $(suggestionsId);
   if (!input || !box) return;
@@ -283,30 +293,37 @@ function bindAddressAutocomplete(inputId, suggestionsId, hiddenAddressId, hidden
   input.addEventListener("input", () => {
     clearTimeout(addressTimer);
     const q = input.value.trim();
-    if (q.length < 3) { box.style.display="none"; box.innerHTML=""; return; }
+    if (q.length < 3) {
+      box.style.display="none";
+      box.innerHTML="";
+      return;
+    }
 
     addressTimer = setTimeout(async () => {
       try {
-        const results = await searchAddresses(q);
+        const results = await searchStores(q);
         box.innerHTML = results.map((r,i)=>`
-          <div class="address-option" data-addr-index="${i}">
-            <div class="address-main">${esc(r.label)}</div>
+          <div class="address-option" data-store-result="${i}">
+            <div class="address-main">${esc(r.name || r.address)}</div>
+            <div class="address-sub">${esc(r.address)}</div>
           </div>`).join("");
         box.style.display = results.length ? "block" : "none";
 
-        box.querySelectorAll("[data-addr-index]").forEach(el=>{
-          el.addEventListener("click",()=>{
-            const r=results[Number(el.dataset.addrIndex)];
-            input.value=r.full;
-            $(hiddenAddressId).value=r.full;
-            $(hiddenCityId).value=r.city;
+        box.querySelectorAll("[data-store-result]").forEach(el => {
+          el.addEventListener("click", () => {
+            const r = results[Number(el.dataset.storeResult)];
+            input.value = [r.name, r.address].filter(Boolean).join(" — ");
+            $(nameId).value = r.name || $(nameId).value || "";
+            $(addressTextId).value = r.address || "";
+            $(hiddenAddressId).value = r.address || "";
+            $(hiddenCityId).value = r.city || "";
             box.style.display="none";
           });
         });
       } catch(e) {
         box.style.display="none";
       }
-    }, 300);
+    }, 250);
   });
 
   input.addEventListener("blur",()=>setTimeout(()=>{box.style.display="none"},180));
@@ -314,9 +331,9 @@ function bindAddressAutocomplete(inputId, suggestionsId, hiddenAddressId, hidden
 
 function openAddressInGoogleMaps(address) {
   const q = String(address||"").trim();
-  if (!q) { alert("Choose or enter an address first."); return; }
-  // Same-tab navigation works reliably on iPhone Safari.
-  window.location.href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+  if (!q) { alert("Choose a store/address first."); return; }
+  const url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+  window.open(url, "_blank");
 }
 
 function mapsUrl(address, city) {
@@ -348,6 +365,7 @@ function selectStore(rec) {
   currentStoreId = rec.storeId || "";
 
   if ($("storeName")) $("storeName").value = currentStore;
+  if ($("storeLookup")) $("storeLookup").value = [currentStore,currentStoreAddress].filter(Boolean).join(" — ");
   if ($("storeAddress")) $("storeAddress").value = currentStoreAddress;
   if ($("storeAddressSearch")) $("storeAddressSearch").value = currentStoreAddress;
   if ($("storeCity")) $("storeCity").value = currentStoreCity;
@@ -357,6 +375,7 @@ function selectStore(rec) {
 }
 function editStoreForm(rec) {
   $("storeMgrName").value = rec.name || "";
+  $("storeMgrLookup").value = [rec.name,rec.address].filter(Boolean).join(" — ");
   $("storeMgrAddress").value = rec.address || "";
   $("storeMgrAddressSearch").value = rec.address || "";
   $("storeMgrCity").value = rec.city || "";
@@ -453,10 +472,10 @@ function finalCounts() {
 }
 
 
-function renderVisualPlanogram() {
-  if (!$("visualPlanogram")) return;
+function renderVisualPlannogram() {
+  if (!$("visualPlannogram")) return;
   if (!DATA.length) {
-    $("visualPlanogram").innerHTML = '<div class="small">Upload an Excel planogram to see the visual layout.</div>';
+    $("visualPlannogram").innerHTML = '<div class="small">Upload an Excel planogram to see the visual layout.</div>';
     return;
   }
 
@@ -464,7 +483,7 @@ function renderVisualPlanogram() {
   const rowNums = DATA.map(r => rowNumber(r.row)).filter(n => Number.isFinite(n) && n < 9999);
   const maxRow = rowNums.length ? Math.max(...rowNums) : Math.max(...cols.map(c => DATA.filter(r=>r.column===c).length), 1);
 
-  $("visualPlanogram").innerHTML = cols.map(c => {
+  $("visualPlannogram").innerHTML = cols.map(c => {
     const byRow = new Map();
     DATA.filter(r => r.column === c).forEach(r => {
       const n = rowNumber(r.row);
@@ -503,13 +522,13 @@ function renderVisualPlanogram() {
 let PLANO_PNG_BLOB = null;
 let PLANO_PNG_NAME = "";
 
-async function buildPlanoPNG() {
+async function buildPlannoPNG() {
   if (!DATA.length) throw new Error("Upload or create a planogram first.");
 
   const store = ($("storeName")?.value || currentStore || "Store").trim();
   const address = ($("storeAddress")?.value || currentStoreAddress || "").trim();
   const city = ($("storeCity")?.value || currentStoreCity || "").trim();
-  const planName = ($("planogramName")?.value || fileName || "Planogram").trim();
+  const planName = ($("planogramName")?.value || fileName || "Plannogram").trim();
 
   const cols = columns();
   if (!cols.length) throw new Error("No columns found.");
@@ -562,7 +581,7 @@ async function buildPlanoPNG() {
     margin,123
   );
 
-  // Planogram grid
+  // Plannogram grid
   cols.forEach((c,ci)=>{
     const x=margin+ci*(colW+gap);
 
@@ -660,12 +679,22 @@ async function buildPlanoPNG() {
 }
 
 
+
+function updatePdfReportSummary() {
+  if (!$("pdfReportSummary")) return;
+  const counts = finalCounts();
+  const pct = counts.total ? Math.round((counts.complete / counts.total) * 100) : 0;
+  $("pdfReportSummary").innerHTML =
+    `<b>Final Report</b><br>` +
+    `${counts.total} total items • ${counts.complete} complete • ${counts.missing} missing • ${counts.notComplete} not complete • ${pct}% complete`;
+}
+
 async function generateOnePagePDF(openAfter=true) {
   try {
     if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("PDF engine did not load.");
 
     // Build the exact same beautiful planogram image first.
-    await buildPlanoPNG();
+    await buildPlannoPNG();
     const canvas = $("planoExportCanvas");
     const imgData = canvas.toDataURL("image/png", 1.0);
 
@@ -690,15 +719,16 @@ async function generateOnePagePDF(openAfter=true) {
     doc.addImage(imgData,"PNG",x,y,w,h,undefined,"FAST");
 
     const store = ($("storeName")?.value || currentStore || "Store").trim();
-    const planName = ($("planogramName")?.value || fileName || "Planogram").trim();
-    const safe = (store+"_"+planName).replace(/[^a-z0-9_-]+/gi,"_");
+    const planName = ($("planogramName")?.value || fileName || "Plannogram").trim();
+    const counts = finalCounts();
+    const safe = (store+"_"+planName+"_Missing_"+counts.missing).replace(/[^a-z0-9_-]+/gi,"_");
     const blob = doc.output("blob");
     const name = safe+"_ONE_PAGE.pdf";
 
     const url = URL.createObjectURL(blob);
     if (openAfter) {
       window.open(url,"_blank");
-      $("planoPdfStatus").textContent="✓ One-page PDF generated from the same PNG layout.";
+      $("planoPdfStatus").textContent="✓ Final PDF report generated with Complete / Missing / Not Complete totals.";
     }
     return {blob,name,url};
   } catch(e) {
@@ -712,7 +742,7 @@ async function shareOnePagePDF() {
     const result = await generateOnePagePDF(false);
     const file = new File([result.blob], result.name, {type:"application/pdf"});
     if (navigator.canShare && navigator.canShare({files:[file]})) {
-      await navigator.share({title:"Plano",files:[file]});
+      await navigator.share({title:"Planno",files:[file]});
       $("planoPdfStatus").textContent="✓ PDF shared.";
     } else {
       window.open(result.url,"_blank");
@@ -723,9 +753,9 @@ async function shareOnePagePDF() {
   }
 }
 
-async function generatePlanoPNG() {
+async function generatePlannoPNG() {
   try {
-    const {blob,name} = await buildPlanoPNG();
+    const {blob,name} = await buildPlannoPNG();
     const url = URL.createObjectURL(blob);
 
     // Most reliable iPhone behavior: show the generated image visibly in the page.
@@ -740,16 +770,16 @@ async function generatePlanoPNG() {
   }
 }
 
-async function sharePlanoPNG() {
+async function sharePlannoPNG() {
   try {
     const result = PLANO_PNG_BLOB
       ? {blob:PLANO_PNG_BLOB,name:PLANO_PNG_NAME}
-      : await buildPlanoPNG();
+      : await buildPlannoPNG();
 
     const file = new File([result.blob], result.name, {type:"image/png"});
 
     if (navigator.canShare && navigator.canShare({files:[file]})) {
-      await navigator.share({title:"Plano", files:[file]});
+      await navigator.share({title:"Planno", files:[file]});
       $("planoPngStatus").textContent = "✓ PNG shared.";
     } else {
       const url = URL.createObjectURL(result.blob);
@@ -767,12 +797,12 @@ async function sharePlanoPNG() {
 
 function renderFinalReview() {
   if (!$("finalComplete")) return;
-  renderVisualPlanogram();
+  renderVisualPlannogram();
 
   const counts = finalCounts();
   if ($("progressIdentity")) {
     const store = ($("storeName")?.value || currentStore || "Store").trim();
-    const planName = ($("planogramName")?.value || fileName || "Planogram").trim();
+    const planName = ($("planogramName")?.value || fileName || "Plannogram").trim();
     const address = ($("storeAddress")?.value || currentStoreAddress || "").trim();
     const city = ($("storeCity")?.value || currentStoreCity || "").trim();
     $("progressIdentity").innerHTML = `<div>${esc(store)} • ${esc(planName)}</div>` +
@@ -839,11 +869,11 @@ function renderFinalReview() {
   }).join("");
 }
 
-async function buildFinalPlanogramBlob() {
+async function buildFinalPlannogramBlob() {
   if (!DATA.length) throw new Error("Upload a planogram first.");
 
   const store = ($("storeName")?.value || currentStore || "Store").trim();
-  const planName = ($("planogramName")?.value || "Planogram").trim();
+  const planName = ($("planogramName")?.value || "Plannogram").trim();
   const cols = columns();
   if (!cols.length) throw new Error("No columns found.");
 
@@ -953,7 +983,7 @@ async function buildFinalPlanogramBlob() {
 
 async function generateFinalPNG() {
   try {
-    const {blob,name} = await buildFinalPlanogramBlob();
+    const {blob,name} = await buildFinalPlannogramBlob();
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement("a");
@@ -975,11 +1005,11 @@ async function generateFinalPNG() {
 
 async function shareFinalPNG() {
   try {
-    const {blob,name} = await buildFinalPlanogramBlob();
+    const {blob,name} = await buildFinalPlannogramBlob();
     const file = new File([blob], name, {type:"image/png"});
 
     if (navigator.canShare && navigator.canShare({files:[file]})) {
-      await navigator.share({title:"Final Planogram", files:[file]});
+      await navigator.share({title:"Final Plannogram", files:[file]});
       $("finalPngStatus").textContent = "✓ Final PNG shared.";
     } else {
       const url = URL.createObjectURL(blob);
@@ -1004,13 +1034,13 @@ function pdfColorForStatus(status) {
   return [253,226,226];
 }
 
-async function buildFinalPlanogramPDFBlob() {
+async function buildFinalPlannogramPDFBlob() {
   if (!DATA.length) throw new Error("Upload a planogram first.");
   if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("PDF engine did not load.");
 
   const { jsPDF } = window.jspdf;
   const store = ($("storeName")?.value || currentStore || "Store").trim();
-  const planName = ($("planogramName")?.value || "Planogram").trim();
+  const planName = ($("planogramName")?.value || "Plannogram").trim();
   const cols = columns();
   if (!cols.length) throw new Error("No columns found.");
 
@@ -1155,7 +1185,7 @@ async function buildFinalPlanogramPDFBlob() {
 
 async function generateFinalPDF() {
   try {
-    const {blob,name} = await buildFinalPlanogramPDFBlob();
+    const {blob,name} = await buildFinalPlannogramPDFBlob();
     const url = URL.createObjectURL(blob);
 
     // iPhone/Safari: open first because browser PDF viewer has a reliable Share button.
@@ -1181,7 +1211,7 @@ async function openFinalPDF() {
   try {
     const result = LAST_PDF_BLOB
       ? {blob:LAST_PDF_BLOB,name:LAST_PDF_NAME}
-      : await buildFinalPlanogramPDFBlob();
+      : await buildFinalPlannogramPDFBlob();
 
     const url = URL.createObjectURL(result.blob);
     window.open(url, "_blank");
@@ -1196,7 +1226,7 @@ async function downloadFinalPDF() {
   try {
     const result = LAST_PDF_BLOB
       ? {blob:LAST_PDF_BLOB,name:LAST_PDF_NAME}
-      : await buildFinalPlanogramPDFBlob();
+      : await buildFinalPlannogramPDFBlob();
 
     const url = URL.createObjectURL(result.blob);
     const a = document.createElement("a");
@@ -1216,12 +1246,12 @@ async function shareFinalPDF() {
   try {
     const result = LAST_PDF_BLOB
       ? {blob:LAST_PDF_BLOB,name:LAST_PDF_NAME}
-      : await buildFinalPlanogramPDFBlob();
+      : await buildFinalPlannogramPDFBlob();
 
     const file = new File([result.blob], result.name, {type:"application/pdf"});
 
     if (navigator.canShare && navigator.canShare({files:[file]})) {
-      await navigator.share({title:"Final Planogram", files:[file]});
+      await navigator.share({title:"Final Plannogram", files:[file]});
       $("finalPdfStatus").textContent = "✓ PDF shared.";
     } else {
       const url = URL.createObjectURL(result.blob);
@@ -1240,11 +1270,11 @@ async function shareFinalPDF() {
 let LAST_PNG_BLOB = null;
 let LAST_PNG_NAME = "";
 
-async function buildPlanogramPNGBlob() {
+async function buildPlannogramPNGBlob() {
   if (!DATA.length) throw new Error("Upload a planogram first.");
 
   const store = ($("storeName")?.value || currentStore || "Store").trim();
-  const planName = ($("planogramName")?.value || "Planogram").trim();
+  const planName = ($("planogramName")?.value || "Plannogram").trim();
   const cols = columns();
   if (!cols.length) throw new Error("No columns found in this planogram.");
 
@@ -1269,7 +1299,7 @@ async function buildPlanogramPNGBlob() {
   ctx.fillText(planName, margin, 80);
   ctx.fillStyle = "#666666";
   ctx.font = "16px Arial";
-  ctx.fillText("Plano Layout", margin, 106);
+  ctx.fillText("Planno Layout", margin, 106);
 
   cols.forEach((c, ci) => {
     const x = margin + ci*(colWidth+gap);
@@ -1314,9 +1344,9 @@ async function buildPlanogramPNGBlob() {
   return {blob, name: LAST_PNG_NAME};
 }
 
-async function exportPlanogramPNG() {
+async function exportPlannogramPNG() {
   try {
-    const {blob, name} = await buildPlanogramPNGBlob();
+    const {blob, name} = await buildPlannogramPNGBlob();
     const url = URL.createObjectURL(blob);
 
     // Safari/iPhone: opening a real blob URL is more reliable than a hidden anchor/data URL.
@@ -1336,9 +1366,9 @@ async function exportPlanogramPNG() {
   }
 }
 
-async function openPlanogramPNG() {
+async function openPlannogramPNG() {
   try {
-    const {blob} = LAST_PNG_BLOB ? {blob:LAST_PNG_BLOB} : await buildPlanogramPNGBlob();
+    const {blob} = LAST_PNG_BLOB ? {blob:LAST_PNG_BLOB} : await buildPlannogramPNGBlob();
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
     $("pngStatus").textContent = "PNG opened in a new tab. Use Safari Share to save it.";
@@ -1348,12 +1378,12 @@ async function openPlanogramPNG() {
   }
 }
 
-async function sharePlanogramPNG() {
+async function sharePlannogramPNG() {
   try {
-    const result = LAST_PNG_BLOB ? {blob:LAST_PNG_BLOB,name:LAST_PNG_NAME} : await buildPlanogramPNGBlob();
+    const result = LAST_PNG_BLOB ? {blob:LAST_PNG_BLOB,name:LAST_PNG_NAME} : await buildPlannogramPNGBlob();
     const file = new File([result.blob], result.name, {type:"image/png"});
     if (navigator.canShare && navigator.canShare({files:[file]})) {
-      await navigator.share({title:"Planogram", files:[file]});
+      await navigator.share({title:"Plannogram", files:[file]});
       $("pngStatus").textContent = "✓ PNG shared.";
     } else {
       const url = URL.createObjectURL(result.blob);
@@ -1366,7 +1396,7 @@ async function sharePlanogramPNG() {
   }
 }
 
-function saveAsNamedPlanogram() {
+function saveAsNamedPlannogram() {
   if (!DATA.length) {
     alert("Upload an Excel planogram first.");
     return;
@@ -1446,7 +1476,7 @@ function saveAsNamedPlanogram() {
   renderSavedPlans();
 }
 
-function openSavedPlanogram(id) {
+function openSavedPlannogram(id) {
   try {
     const raw = localStorage.getItem("saved_planogram|" + id);
     if (!raw) throw new Error("Saved planogram not found.");
@@ -1461,6 +1491,7 @@ function openSavedPlanogram(id) {
     currentScanImage = record.scanImage || "";
     if ($("planogramName")) $("planogramName").value = record.name || "";
     if ($("storeName")) $("storeName").value = record.store || "";
+    if ($("storeLookup")) $("storeLookup").value = [record.store,record.storeAddress].filter(Boolean).join(" — ");
     if ($("storeAddress")) $("storeAddress").value = record.storeAddress || "";
     if ($("storeAddressSearch")) $("storeAddressSearch").value = record.storeAddress || "";
     if ($("storeCity")) $("storeCity").value = record.storeCity || "";
@@ -1487,7 +1518,7 @@ function openSavedPlanogram(id) {
   }
 }
 
-function deleteSavedPlanogram(id) {
+function deleteSavedPlannogram(id) {
   const index = savedPlansIndex();
   const p = index.find(x => x.id === id);
   if (!p) return;
@@ -1498,7 +1529,7 @@ function deleteSavedPlanogram(id) {
   renderSavedPlans();
 }
 
-function updateSavedPlanogram(id) {
+function updateSavedPlannogram(id) {
   const raw = localStorage.getItem("saved_planogram|" + id);
   if (!raw) return;
   const record = JSON.parse(raw);
@@ -1523,7 +1554,7 @@ function renderSavedPlans() {
   if (!$("plansList")) return;
   const index = savedPlansIndex();
   if (!index.length) {
-    $("plansList").innerHTML = '<div class="card">No saved planograms yet. Upload Excel, give it a name, then tap <b>Save Planogram</b>.</div>';
+    $("plansList").innerHTML = '<div class="card">No saved planograms yet. Upload Excel, give it a name, then tap <b>Save Plannogram</b>.</div>';
     return;
   }
 
@@ -1546,7 +1577,7 @@ function renderSavedPlans() {
     </div>`).join("");
 
   document.querySelectorAll("[data-open-plan]").forEach(b =>
-    b.addEventListener("click", () => openSavedPlanogram(b.dataset.openPlan))
+    b.addEventListener("click", () => openSavedPlannogram(b.dataset.openPlan))
   );
   document.querySelectorAll("[data-map-plan]").forEach(b =>
     b.addEventListener("click", () => {
@@ -1555,7 +1586,7 @@ function renderSavedPlans() {
     })
   );
   document.querySelectorAll("[data-delete-plan]").forEach(b =>
-    b.addEventListener("click", () => deleteSavedPlanogram(b.dataset.deletePlan))
+    b.addEventListener("click", () => deleteSavedPlannogram(b.dataset.deletePlan))
   );
 }
 
@@ -1611,12 +1642,12 @@ $("scanImage").addEventListener("change", e => {
     currentScanImage = r.result;
     $("scanPreview").src = currentScanImage;
     $("scanPreview").style.display = "block";
-    $("scanStatus").textContent = "✓ Planogram image attached. Save the planogram to retain it.";
+    $("scanStatus").textContent = "✓ Plannogram image attached. Save the planogram to retain it.";
   };
   r.readAsDataURL(f);
 });
 
-$("saveAsPlanogram").addEventListener("click", saveAsNamedPlanogram);
+$("saveAsPlannogram").addEventListener("click", saveAsNamedPlannogram);
 
 $("generateFinalPdf").addEventListener("click", generateFinalPDF);
 $("shareFinalPdf").addEventListener("click", shareFinalPDF);
@@ -1811,7 +1842,7 @@ function setCurrentColumnStatus(status) {
   setRowsStatus(rows, status);
 }
 
-function setAllPlanogramStatus(status) {
+function setAllPlannogramStatus(status) {
   if (!DATA.length) {
     alert("Upload a planogram first.");
     return;
@@ -1823,14 +1854,14 @@ $("columnComplete").addEventListener("click", () => setCurrentColumnStatus("Comp
 $("columnMissing").addEventListener("click", () => setCurrentColumnStatus("Missing"));
 $("columnNotComplete").addEventListener("click", () => setCurrentColumnStatus("Not Complete"));
 
-$("allComplete").addEventListener("click", () => setAllPlanogramStatus("Complete"));
-$("allMissing").addEventListener("click", () => setAllPlanogramStatus("Missing"));
-$("allNotComplete").addEventListener("click", () => setAllPlanogramStatus("Not Complete"));
+$("allComplete").addEventListener("click", () => setAllPlannogramStatus("Complete"));
+$("allMissing").addEventListener("click", () => setAllPlannogramStatus("Missing"));
+$("allNotComplete").addEventListener("click", () => setAllPlannogramStatus("Not Complete"));
 
-$("generatePlanoPng").addEventListener("click", generatePlanoPNG);
-$("generatePlanoPdf").addEventListener("click", () => generateOnePagePDF(true));
-$("sharePlanoPdf").addEventListener("click", shareOnePagePDF);
-$("sharePlanoPng").addEventListener("click", sharePlanoPNG);
+$("generatePlannoPng").addEventListener("click", generatePlannoPNG);
+$("generatePlannoPdf").addEventListener("click", () => generateOnePagePDF(true));
+$("sharePlannoPdf").addEventListener("click", shareOnePagePDF);
+$("sharePlannoPng").addEventListener("click", sharePlannoPNG);
 
 $("search").addEventListener("input", renderReset);
 $("statusFilter").addEventListener("change", renderReset);
@@ -2015,5 +2046,22 @@ renderReset();
 renderDatabase();
 
 
-bindAddressAutocomplete("storeAddressSearch","addressSuggestions","storeAddress","storeCity");
-bindAddressAutocomplete("storeMgrAddressSearch","storeMgrSuggestions","storeMgrAddress","storeMgrCity");
+
+
+bindStoreLookup(
+  "storeLookup",
+  "storeLookupSuggestions",
+  "storeName",
+  "storeAddressSearch",
+  "storeAddress",
+  "storeCity"
+);
+
+bindStoreLookup(
+  "storeMgrLookup",
+  "storeMgrLookupSuggestions",
+  "storeMgrName",
+  "storeMgrAddressSearch",
+  "storeMgrAddress",
+  "storeMgrCity"
+);

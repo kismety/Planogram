@@ -1,17 +1,16 @@
-# Plano — Clean Final Build
+# Planno
 
-Core workflow:
-1. Select/save Store.
-2. Type address and choose an address suggestion.
-3. Optional: attach the paper planogram image as reference.
-4. Upload the converted Excel planogram.
-5. Excel Column + Row is the layout source of truth.
-6. Reset cards and mark Complete / Missing / Not Complete.
-7. Progress shows the same beautiful planogram grid.
-8. Generate PNG.
-9. Generate a ONE-PAGE PDF made from that exact PNG layout.
-
-No OCR / AI extraction is included in this build.
+Final build features:
+- App name: Planno
+- Automatic Store Search: type store name or address and choose a suggestion
+- Store name + full address are filled automatically
+- Open selected location in Google Maps
+- Excel import remains the source of truth for planogram layout
+- Optional planogram reference image
+- Beautiful one-page PNG visual
+- Final one-page PDF report based on the same visual
+- PDF includes totals for Complete, Missing, Not Complete and overall completion
+- Saved stores, saved planograms, progress dashboard, database filters, bulk checklist
 
 Status colours:
 - Green = Complete

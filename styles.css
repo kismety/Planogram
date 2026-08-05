@@ -200,3 +200,9 @@ nav{grid-template-columns:repeat(6,1fr)}
 .address-option:hover{background:#f5f5f5}
 .address-main{font-weight:700}
 .address-sub{color:#666;font-size:12px;margin-top:2px}
+
+.report-summary{
+  margin-top:12px;padding:12px;border-radius:12px;
+  background:#f7f7f8;border:1px solid #ddd;
+  font-size:13px;line-height:1.5
+}
