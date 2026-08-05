@@ -18,6 +18,7 @@
 <button id="navReset">Reset</button>
 <button id="navDatabase">Database</button>
 <button id="navPlans">Saved Plans</button>
+<button id="navFinal">Final Review</button>
 </nav>
 <div id="resetTools" style="display:none">
 <input id="search" placeholder="Search card name…">
@@ -55,6 +56,11 @@
 <button id="saveAsPlanogram" class="primary">Save Planogram</button>
 <button id="exportPng">Export PNG</button>
 </div>
+<div id="pngStatus" class="small" style="margin-top:8px"></div>
+<div class="savegrid" style="margin-top:8px">
+<button id="openPng">Open PNG</button>
+<button id="sharePng">Share PNG</button>
+</div>
 </div>
 <div class="card">
 <div class="dbname">Save & Backup</div>
@@ -70,6 +76,15 @@
 </section>
 
 <section id="reset" class="screen">
+<div class="card bulkcard">
+<div class="dbname">Bulk Update</div>
+<div class="small">Applies to the positions currently shown by your column/search/status filters.</div>
+<div class="bulkgrid">
+<button id="bulkComplete" class="primary">✓ All Complete</button>
+<button id="bulkNotComplete">All Not Complete</button>
+<button id="bulkMissing">All Missing</button>
+</div>
+</div>
 <div class="summary">
 <div class="metric"><b id="mComplete">0</b><span class="small">Complete</span></div>
 <div class="metric"><b id="mRemaining">0</b><span class="small">Not Complete</span></div>
@@ -80,6 +95,23 @@
 
 <section id="database" class="screen">
 <input id="dbSearch" placeholder="Search imported database…">
+<div class="filters" style="margin-top:8px">
+<select id="dbCategory"><option value="">All categories</option></select>
+<select id="dbColumn"><option value="">All columns</option></select>
+</div>
+<div class="filters" style="margin-top:8px">
+<select id="dbStatus">
+<option value="">All statuses</option>
+<option value="Not Complete">Not Complete</option>
+<option value="Complete">Complete</option>
+<option value="Missing">Missing</option>
+</select>
+<select id="dbSort">
+<option value="name">Sort: Name</option>
+<option value="column">Sort: Column</option>
+<option value="category">Sort: Category</option>
+</select>
+</div>
 <div id="dbCount" class="small" style="margin-top:8px"></div>
 <div id="dbList"></div>
 </section>
@@ -93,6 +125,43 @@
 </section>
 
 <canvas id="exportCanvas" style="display:none"></canvas>
+
+<section id="final" class="screen">
+<div class="card">
+<div class="dbname">Final Review</div>
+<div class="small">Verify the reset before generating the final planogram.</div>
+</div>
+
+<div class="summary">
+<div class="metric"><b id="finalComplete">0</b><span class="small">Complete</span></div>
+<div class="metric"><b id="finalRemaining">0</b><span class="small">Not Complete</span></div>
+<div class="metric"><b id="finalMissing">0</b><span class="small">Missing</span></div>
+</div>
+
+<div class="card">
+<div class="dbname">Completion Status</div>
+<div id="finalMessage" class="small" style="margin-top:6px"></div>
+<div class="progress"><div id="finalFill" class="fill"></div></div>
+</div>
+
+<div class="card">
+<div class="dbname">Generate Final Planogram</div>
+<div class="small" style="margin:6px 0 10px">
+Creates a PNG showing every column, card, and saved status.
+</div>
+<div class="savegrid">
+<button id="generateFinalPng" class="primary">Generate Final PNG</button>
+<button id="shareFinalPng">Share Final PNG</button>
+</div>
+<div id="finalPngStatus" class="small" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
+<div class="dbname">Outstanding Positions</div>
+<div id="outstandingList"></div>
+</div>
+</section>
+
 </main>
 
 <footer id="footer">

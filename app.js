@@ -21,6 +21,7 @@ function show(screen) {
 
   if (onReset) renderReset();
   if (screen === "database") renderDatabase();
+  if (screen === "final") renderFinalReview();
 renderSavedPlans();
 }
 
@@ -28,6 +29,7 @@ $("navUpload").addEventListener("click", () => show("upload"));
 $("navReset").addEventListener("click", () => show("reset"));
 $("navDatabase").addEventListener("click", () => show("database"));
 $("navPlans").addEventListener("click", () => { show("plans"); renderSavedPlans(); });
+$("navFinal").addEventListener("click", () => { show("final"); renderFinalReview(); });
 
 function hkey(v) {
   return String(v ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -229,53 +231,251 @@ function collectStatusesForData(rows) {
 }
 
 
-function exportPlanogramPNG() {
-  if (!DATA.length) {
-    alert("Upload a planogram first.");
+
+
+function finalCounts() {
+  const complete = DATA.filter(r => getStatus(r) === "Complete").length;
+  const missing = DATA.filter(r => getStatus(r) === "Missing").length;
+  const notComplete = DATA.filter(r => getStatus(r) === "Not Complete").length;
+  return {complete, missing, notComplete, total: DATA.length};
+}
+
+function renderFinalReview() {
+  if (!$("finalComplete")) return;
+
+  const counts = finalCounts();
+  $("finalComplete").textContent = counts.complete;
+  $("finalMissing").textContent = counts.missing;
+  $("finalRemaining").textContent = counts.notComplete;
+
+  const pct = counts.total ? Math.round(counts.complete / counts.total * 100) : 0;
+  $("finalFill").style.width = pct + "%";
+
+  if (!counts.total) {
+    $("finalMessage").textContent = "No planogram loaded.";
+    $("outstandingList").innerHTML = '<div class="small">Upload a planogram first.</div>';
     return;
   }
+
+  if (counts.notComplete === 0) {
+    $("finalMessage").textContent =
+      "Reset review complete. " + counts.complete + " positions are complete and " +
+      counts.missing + " are marked missing.";
+  } else {
+    $("finalMessage").textContent =
+      pct + "% complete. " + counts.notComplete + " positions still need a final decision.";
+  }
+
+  const outstanding = DATA.filter(r => getStatus(r) !== "Complete")
+    .sort((a,b) => columnNumber(a.column)-columnNumber(b.column) || rowNumber(a.row)-rowNumber(b.row));
+
+  $("outstandingList").innerHTML = outstanding.length
+    ? outstanding.map(r => {
+        const s = getStatus(r);
+        const cls = s === "Missing" ? "status-missing" : "status-notcomplete";
+        return `<div class="finalrow ${cls}">
+          <b>${esc(r.position)} — ${esc(r.card)}</b>
+          <span class="small">${esc(s)}${r.denomination ? " • " + esc(r.denomination) : ""}</span>
+        </div>`;
+      }).join("")
+    : '<div class="finalrow status-complete"><b>All positions complete.</b></div>';
+}
+
+async function buildFinalPlanogramBlob() {
+  if (!DATA.length) throw new Error("Upload a planogram first.");
 
   const store = ($("storeName")?.value || currentStore || "Store").trim();
   const planName = ($("planogramName")?.value || "Planogram").trim();
   const cols = columns();
-  if (!cols.length) {
-    alert("No columns found in this planogram.");
-    return;
-  }
+  if (!cols.length) throw new Error("No columns found.");
 
   const grouped = {};
-  cols.forEach(c => grouped[c] = DATA.filter(r => r.column === c).sort((a,b) => rowNumber(a.row)-rowNumber(b.row)));
+  cols.forEach(c => grouped[c] = DATA.filter(r => r.column === c)
+    .sort((a,b) => rowNumber(a.row)-rowNumber(b.row)));
 
-  const colWidth = 300;
+  const colWidth = 320;
   const gap = 18;
   const margin = 40;
-  const headerH = 120;
-  const rowH = 72;
+  const headerH = 155;
+  const rowH = 88;
   const maxRows = Math.max(...cols.map(c => grouped[c].length), 1);
 
   const canvas = $("exportCanvas");
   const ctx = canvas.getContext("2d");
   canvas.width = margin*2 + cols.length*colWidth + (cols.length-1)*gap;
-  canvas.height = headerH + margin + maxRows*rowH + 80;
+  canvas.height = headerH + 50 + maxRows*rowH + 110;
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
+  const counts = finalCounts();
+
   ctx.fillStyle = "#111111";
-  ctx.font = "bold 32px -apple-system, BlinkMacSystemFont, Segoe UI, Arial";
-  ctx.fillText(store, margin, 44);
-  ctx.font = "bold 24px -apple-system, BlinkMacSystemFont, Segoe UI, Arial";
-  ctx.fillText(planName, margin, 78);
-  ctx.font = "16px -apple-system, BlinkMacSystemFont, Segoe UI, Arial";
-  ctx.fillStyle = "#666666";
-  ctx.fillText("Generated from Planogram Reset App", margin, 104);
+  ctx.font = "bold 34px Arial";
+  ctx.fillText(store, margin, 45);
+  ctx.font = "bold 26px Arial";
+  ctx.fillText(planName, margin, 82);
+  ctx.font = "16px Arial";
+  ctx.fillStyle = "#555555";
+  ctx.fillText(
+    `Final Reset • ${counts.complete} Complete • ${counts.missing} Missing • ${counts.notComplete} Not Complete`,
+    margin, 112
+  );
+  ctx.fillText(new Date().toLocaleString(), margin, 136);
 
   cols.forEach((c, ci) => {
     const x = margin + ci*(colWidth+gap);
     ctx.fillStyle = "#111111";
     ctx.fillRect(x, headerH, colWidth, 46);
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 22px -apple-system, BlinkMacSystemFont, Segoe UI, Arial";
+    ctx.font = "bold 22px Arial";
+    ctx.fillText(c, x+14, headerH+30);
+
+    grouped[c].forEach((r, ri) => {
+      const y = headerH + 46 + ri*rowH;
+      const status = getStatus(r);
+
+      if (status === "Complete") ctx.fillStyle = "#e7f4e4";
+      else if (status === "Missing") ctx.fillStyle = "#fde9e7";
+      else ctx.fillStyle = "#fff6d9";
+
+      ctx.fillRect(x, y, colWidth, rowH);
+      ctx.strokeStyle = "#cccccc";
+      ctx.strokeRect(x, y, colWidth, rowH);
+
+      ctx.fillStyle = "#111111";
+      ctx.font = "bold 14px Arial";
+      ctx.fillText(r.position || (c + "-" + r.row), x+10, y+19);
+
+      ctx.font = "14px Arial";
+      const name = r.card || "";
+      const maxChars = 36;
+      const displayName = name.length > maxChars ? name.slice(0,maxChars-1)+"…" : name;
+      ctx.fillText(displayName, x+10, y+42);
+
+      ctx.font = "bold 12px Arial";
+      ctx.fillStyle = status === "Missing" ? "#a94442" : status === "Complete" ? "#2d6a2d" : "#8a6d00";
+      ctx.fillText(status, x+10, y+63);
+
+      if (r.denomination) {
+        ctx.font = "11px Arial";
+        ctx.fillStyle = "#666666";
+        ctx.fillText(r.denomination, x+10, y+79);
+      }
+    });
+  });
+
+  const legendY = canvas.height - 48;
+  const legend = [
+    ["#e7f4e4","Complete"],
+    ["#fde9e7","Missing"],
+    ["#fff6d9","Not Complete"]
+  ];
+  let lx = margin;
+  legend.forEach(([color,label]) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(lx, legendY, 24, 24);
+    ctx.strokeStyle = "#bbbbbb";
+    ctx.strokeRect(lx, legendY, 24, 24);
+    ctx.fillStyle = "#111111";
+    ctx.font = "14px Arial";
+    ctx.fillText(label, lx+32, legendY+17);
+    lx += 150;
+  });
+
+  const blob = await new Promise((resolve,reject) => {
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error("PNG generation failed.")), "image/png");
+  });
+
+  const safeStore = store.replace(/[^a-z0-9_-]+/gi,"_");
+  const safePlan = planName.replace(/[^a-z0-9_-]+/gi,"_");
+  const name = safeStore + "_" + safePlan + "_FINAL.png";
+  return {blob,name};
+}
+
+async function generateFinalPNG() {
+  try {
+    const {blob,name} = await buildFinalPlanogramBlob();
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    $("finalPngStatus").textContent =
+      "✓ Final PNG generated. On iPhone, use Share → Save to Files or Photos.";
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    $("finalPngStatus").textContent = "Final PNG failed: " + e.message;
+  }
+}
+
+async function shareFinalPNG() {
+  try {
+    const {blob,name} = await buildFinalPlanogramBlob();
+    const file = new File([blob], name, {type:"image/png"});
+
+    if (navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({title:"Final Planogram", files:[file]});
+      $("finalPngStatus").textContent = "✓ Final PNG shared.";
+    } else {
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      $("finalPngStatus").textContent = "Final PNG opened. Use Safari Share to save it.";
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      $("finalPngStatus").textContent = "Could not share final PNG: " + e.message;
+    }
+  }
+}
+
+let LAST_PNG_BLOB = null;
+let LAST_PNG_NAME = "";
+
+async function buildPlanogramPNGBlob() {
+  if (!DATA.length) throw new Error("Upload a planogram first.");
+
+  const store = ($("storeName")?.value || currentStore || "Store").trim();
+  const planName = ($("planogramName")?.value || "Planogram").trim();
+  const cols = columns();
+  if (!cols.length) throw new Error("No columns found in this planogram.");
+
+  const grouped = {};
+  cols.forEach(c => grouped[c] = DATA.filter(r => r.column === c).sort((a,b) => rowNumber(a.row)-rowNumber(b.row)));
+
+  const colWidth = 300, gap = 18, margin = 40, headerH = 125, rowH = 76;
+  const maxRows = Math.max(...cols.map(c => grouped[c].length), 1);
+
+  const canvas = $("exportCanvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = margin*2 + cols.length*colWidth + (cols.length-1)*gap;
+  canvas.height = headerH + 50 + maxRows*rowH + 80;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle = "#111111";
+  ctx.font = "bold 32px Arial";
+  ctx.fillText(store, margin, 44);
+  ctx.font = "bold 24px Arial";
+  ctx.fillText(planName, margin, 80);
+  ctx.fillStyle = "#666666";
+  ctx.font = "16px Arial";
+  ctx.fillText("Planogram Reset Layout", margin, 106);
+
+  cols.forEach((c, ci) => {
+    const x = margin + ci*(colWidth+gap);
+    ctx.fillStyle = "#111111";
+    ctx.fillRect(x, headerH, colWidth, 46);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 22px Arial";
     ctx.fillText(c, x+14, headerH+30);
 
     grouped[c].forEach((r, ri) => {
@@ -286,31 +486,83 @@ function exportPlanogramPNG() {
       ctx.strokeRect(x, y, colWidth, rowH);
 
       ctx.fillStyle = "#111111";
-      ctx.font = "bold 15px -apple-system, BlinkMacSystemFont, Segoe UI, Arial";
-      ctx.fillText(r.position || (c + "-" + r.row), x+10, y+20);
+      ctx.font = "bold 14px Arial";
+      ctx.fillText(r.position || (c + "-" + r.row), x+10, y+19);
 
-      ctx.font = "14px -apple-system, BlinkMacSystemFont, Segoe UI, Arial";
+      ctx.font = "14px Arial";
       const name = r.card || "";
-      const maxChars = 34;
-      const first = name.length > maxChars ? name.slice(0,maxChars-1)+"…" : name;
-      ctx.fillText(first, x+10, y+42);
+      const maxChars = 33;
+      const displayName = name.length > maxChars ? name.slice(0,maxChars-1)+"…" : name;
+      ctx.fillText(displayName, x+10, y+41);
 
-      if (r.denomination) {
-        ctx.fillStyle = "#666666";
-        ctx.font = "12px -apple-system, BlinkMacSystemFont, Segoe UI, Arial";
-        ctx.fillText(r.denomination, x+10, y+60);
-      }
+      ctx.fillStyle = "#666666";
+      ctx.font = "12px Arial";
+      const extra = [r.denomination, getStatus(r)].filter(Boolean).join(" • ");
+      if (extra) ctx.fillText(extra, x+10, y+61);
     });
   });
 
-  const link = document.createElement("a");
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error("PNG generation failed.")), "image/png");
+  });
+
   const safeStore = store.replace(/[^a-z0-9_-]+/gi,"_");
   const safePlan = planName.replace(/[^a-z0-9_-]+/gi,"_");
-  link.download = safeStore + "_" + safePlan + ".png";
-  link.href = canvas.toDataURL("image/png");
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+  LAST_PNG_NAME = safeStore + "_" + safePlan + ".png";
+  LAST_PNG_BLOB = blob;
+  return {blob, name: LAST_PNG_NAME};
+}
+
+async function exportPlanogramPNG() {
+  try {
+    const {blob, name} = await buildPlanogramPNGBlob();
+    const url = URL.createObjectURL(blob);
+
+    // Safari/iPhone: opening a real blob URL is more reliable than a hidden anchor/data URL.
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    $("pngStatus").textContent = "✓ PNG generated. If Safari opened the image, use Share → Save to Files/Photos.";
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    $("pngStatus").textContent = "PNG export failed: " + e.message;
+  }
+}
+
+async function openPlanogramPNG() {
+  try {
+    const {blob} = LAST_PNG_BLOB ? {blob:LAST_PNG_BLOB} : await buildPlanogramPNGBlob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    $("pngStatus").textContent = "PNG opened in a new tab. Use Safari Share to save it.";
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    $("pngStatus").textContent = "Could not open PNG: " + e.message;
+  }
+}
+
+async function sharePlanogramPNG() {
+  try {
+    const result = LAST_PNG_BLOB ? {blob:LAST_PNG_BLOB,name:LAST_PNG_NAME} : await buildPlanogramPNGBlob();
+    const file = new File([result.blob], result.name, {type:"image/png"});
+    if (navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({title:"Planogram", files:[file]});
+      $("pngStatus").textContent = "✓ PNG shared.";
+    } else {
+      const url = URL.createObjectURL(result.blob);
+      window.open(url, "_blank");
+      $("pngStatus").textContent = "Share-files is not supported here. PNG opened instead.";
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") $("pngStatus").textContent = "Could not share PNG: " + e.message;
+  }
 }
 
 function saveAsNamedPlanogram() {
@@ -473,6 +725,10 @@ function loadSaved() {
 
 $("saveAsPlanogram").addEventListener("click", saveAsNamedPlanogram);
 $("exportPng").addEventListener("click", exportPlanogramPNG);
+$("generateFinalPng").addEventListener("click", generateFinalPNG);
+$("shareFinalPng").addEventListener("click", shareFinalPNG);
+$("openPng").addEventListener("click", openPlanogramPNG);
+$("sharePng").addEventListener("click", sharePlanogramPNG);
 
 $("xlsxFile").addEventListener("change", async e => {
   const f = e.target.files?.[0];
@@ -603,6 +859,7 @@ function renderReset() {
       if (!r) return;
       setStatus(r, b.dataset.status);
       renderReset();
+      renderFinalReview();
     });
   });
 
@@ -622,6 +879,23 @@ function updateSummary() {
   $("progressText").textContent = `${pct}% complete • ${complete} of ${DATA.length} positions`;
 }
 
+
+function applyBulkStatus(status) {
+  if (!DATA.length) return;
+  const rows = currentRows();
+  if (!rows.length) return;
+  const label = rows.length + " visible position" + (rows.length===1 ? "" : "s");
+  if (!confirm("Set " + label + " to " + status + "?")) return;
+  rows.forEach(r => setStatus(r, status));
+  saveAll(false);
+  renderReset();
+  renderFinalReview();
+}
+
+$("bulkComplete").addEventListener("click", () => applyBulkStatus("Complete"));
+$("bulkNotComplete").addEventListener("click", () => applyBulkStatus("Not Complete"));
+$("bulkMissing").addEventListener("click", () => applyBulkStatus("Missing"));
+
 $("search").addEventListener("input", renderReset);
 $("statusFilter").addEventListener("change", renderReset);
 $("colFilter").addEventListener("change", function() {
@@ -630,8 +904,28 @@ $("colFilter").addEventListener("change", function() {
   renderTabs();
 });
 
+
+function fillDatabaseFilters() {
+  if (!$("dbCategory")) return;
+  const categories = [...new Set(DATA.map(r => r.category).filter(Boolean))].sort();
+  const cols = columns();
+  const oldCat = $("dbCategory").value;
+  const oldCol = $("dbColumn").value;
+  $("dbCategory").innerHTML = '<option value="">All categories</option>' + categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  $("dbColumn").innerHTML = '<option value="">All columns</option>' + cols.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  if (categories.includes(oldCat)) $("dbCategory").value = oldCat;
+  if (cols.includes(oldCol)) $("dbColumn").value = oldCol;
+}
+
 function renderDatabase() {
+  if (!$("dbList")) return;
+  fillDatabaseFilters();
+
   const q = $("dbSearch").value.trim().toLowerCase();
+  const category = $("dbCategory").value;
+  const column = $("dbColumn").value;
+  const status = $("dbStatus").value;
+  const sort = $("dbSort").value;
 
   if (!DATA.length) {
     $("dbCount").textContent = "0 imported positions";
@@ -639,29 +933,63 @@ function renderDatabase() {
     return;
   }
 
+  const filteredRows = DATA.filter(r =>
+    (!q || r.card.toLowerCase().includes(q)) &&
+    (!category || r.category === category) &&
+    (!column || r.column === column) &&
+    (!status || getStatus(r) === status)
+  );
+
   const products = new Map();
-  DATA.forEach(r => {
+  filteredRows.forEach(r => {
     const key = r.card.toLowerCase();
     if (!products.has(key)) {
-      products.set(key, { name: r.card, category: r.category, positions: [] });
+      products.set(key, { name:r.card, category:r.category, rows:[] });
     }
-    products.get(key).positions.push(r.position);
+    products.get(key).rows.push(r);
   });
 
-  const list = [...products.values()]
-    .filter(p => !q || p.name.toLowerCase().includes(q))
-    .sort((a,b) => a.name.localeCompare(b.name));
+  let list = [...products.values()];
+  if (sort === "category") {
+    list.sort((a,b) => (a.category||"").localeCompare(b.category||"") || a.name.localeCompare(b.name));
+  } else if (sort === "column") {
+    list.sort((a,b) => {
+      const ac = Math.min(...a.rows.map(r => columnNumber(r.column)));
+      const bc = Math.min(...b.rows.map(r => columnNumber(r.column)));
+      return ac-bc || a.name.localeCompare(b.name);
+    });
+  } else {
+    list.sort((a,b) => a.name.localeCompare(b.name));
+  }
 
-  $("dbCount").textContent = `${list.length} unique products • ${DATA.length} total positions`;
-  $("dbList").innerHTML = list.map(p => `
-    <div class="card">
-      <div class="dbname">${esc(p.name)}</div>
-      ${p.category ? `<span class="pill">${esc(p.category)}</span>` : ""}
-      <div class="meta">Positions: ${esc(p.positions.join(", "))}</div>
-    </div>`).join("");
+  $("dbCount").textContent = `${list.length} products • ${filteredRows.length} matching positions`;
+
+  $("dbList").innerHTML = list.map(p => {
+    const counts = {Complete:0,"Not Complete":0,Missing:0};
+    p.rows.forEach(r => counts[getStatus(r)]++);
+    const positions = p.rows
+      .sort((a,b)=>columnNumber(a.column)-columnNumber(b.column)||rowNumber(a.row)-rowNumber(b.row))
+      .map(r => `${r.position} — ${getStatus(r)}`);
+
+    return `
+      <div class="card">
+        <div class="dbname">${esc(p.name)}</div>
+        ${p.category ? `<span class="pill">${esc(p.category)}</span>` : ""}
+        <div>
+          ${counts.Complete ? `<span class="dbstatus">✓ ${counts.Complete} Complete</span>` : ""}
+          ${counts["Not Complete"] ? `<span class="dbstatus">${counts["Not Complete"]} Not Complete</span>` : ""}
+          ${counts.Missing ? `<span class="dbstatus">${counts.Missing} Missing</span>` : ""}
+        </div>
+        <div class="dbpositions">${positions.map(esc).join("<br>")}</div>
+      </div>`;
+  }).join("") || '<div class="card">No database matches.</div>';
 }
 
 $("dbSearch").addEventListener("input", renderDatabase);
+$("dbCategory").addEventListener("change", renderDatabase);
+$("dbColumn").addEventListener("change", renderDatabase);
+$("dbStatus").addEventListener("change", renderDatabase);
+$("dbSort").addEventListener("change", renderDatabase);
 
 $("prev").addEventListener("click", () => {
   const cols = columns();
