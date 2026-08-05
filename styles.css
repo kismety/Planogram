@@ -206,3 +206,17 @@ nav{grid-template-columns:repeat(6,1fr)}
   background:#f7f7f8;border:1px solid #ddd;
   font-size:13px;line-height:1.5
 }
+
+.pdfreviewrow{
+  display:grid;
+  grid-template-columns:84px 1fr 120px 120px;
+  gap:7px;
+  padding:8px 0;
+  border-bottom:1px solid #eee;
+}
+@media(max-width:680px){
+  .pdfreviewrow{grid-template-columns:72px 1fr}
+  .pdfreviewrow .pdfdenom,.pdfreviewrow .pdfcat{grid-column:2}
+}
+
+.card-value{font-weight:800;font-size:12px;margin-top:3px;color:#333}

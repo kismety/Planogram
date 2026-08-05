@@ -7,6 +7,9 @@ let currentStoreAddress = "";
 let currentStoreCity = "";
 let currentStoreId = "";
 let currentScanImage = "";
+let PDF_EXTRACTED_ROWS = [];
+let GENERATED_PDF_XLSX = null;
+let GENERATED_PDF_XLSX_NAME = "";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({
   "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
@@ -47,6 +50,312 @@ function firstIndex(headers, names) {
     if (i >= 0) return i;
   }
   return -1;
+}
+
+
+function pdfTextRowsFromItems(items) {
+  // Convert text items into approximate reading rows using Y coordinates.
+  const rows = [];
+  const tol = 3.5;
+
+  items.forEach(item => {
+    const str = String(item.str || "").trim();
+    if (!str) return;
+    const x = item.transform ? item.transform[4] : 0;
+    const y = item.transform ? item.transform[5] : 0;
+
+    let row = rows.find(r => Math.abs(r.y - y) <= tol);
+    if (!row) {
+      row = {y, items:[]};
+      rows.push(row);
+    }
+    row.items.push({x,str});
+  });
+
+  rows.sort((a,b)=>b.y-a.y);
+  return rows.map(r => {
+    r.items.sort((a,b)=>a.x-b.x);
+    return r.items.map(i=>i.str).join(" ").replace(/\s+/g," ").trim();
+  }).filter(Boolean);
+}
+
+function parsePdfTextToPlanogram(lines) {
+  // Heuristic parser for common planogram text exports.
+  // Recognizes explicit C#-R# / C# R# / C#R# patterns first.
+  const out = [];
+  const seen = new Set();
+
+  const posPatterns = [
+    /\bC(\d+)\s*[-–]\s*R(\d+)\b/i,
+    /\bC(\d+)\s+R(\d+)\b/i,
+    /\bC(\d+)R(\d+)\b/i
+  ];
+
+  lines.forEach((line, idx) => {
+    let match = null;
+    for (const p of posPatterns) {
+      match = line.match(p);
+      if (match) break;
+    }
+    if (!match) return;
+
+    const col = "C" + Number(match[1]);
+    const row = "R" + Number(match[2]);
+    const position = `${col}-${row}`;
+    if (seen.has(position)) return;
+    seen.add(position);
+
+    // Remove position token from line.
+    let rest = line.replace(match[0], " ").replace(/\s+/g," ").trim();
+
+    // Denomination candidates.
+    let denom = "";
+    const denomMatch = rest.match(/\$?\d+\s*[-–]\s*\$?\d+|\$?\d+\b|Variable\b/i);
+    if (denomMatch) {
+      denom = denomMatch[0].replace(/\$/g,"");
+      rest = rest.replace(denomMatch[0]," ").replace(/\s+/g," ").trim();
+    }
+
+    // Remove status words from imports
+    rest = rest.replace(/\bComplete\b|\bMissing\b|\bNot Complete\b/ig," ").replace(/\s+/g," ").trim();
+
+    // If line leaves too little, use following line as name.
+    if (rest.length < 2 && lines[idx+1]) {
+      rest = lines[idx+1].trim();
+    }
+
+    out.push({
+      id:`pdf|${position}|${idx}`,
+      planogram:$("planogramName")?.value?.trim() || "PDF Planogram",
+      card:rest || "VERIFY - card name",
+      denomination:denom,
+      category:"",
+      column:col,
+      row:row,
+      position,
+      notes:"Imported from PDF",
+      confidence:rest ? "Medium" : "Low"
+    });
+  });
+
+  // Fallback: detect sequential C1, C2 headers and following rows if no explicit positions.
+  if (!out.length) {
+    let currentCol = "";
+    let rowCounter = 0;
+    lines.forEach((line, idx) => {
+      const colOnly = line.match(/^\s*C(\d+)\s*$/i);
+      if (colOnly) {
+        currentCol = "C" + Number(colOnly[1]);
+        rowCounter = 0;
+        return;
+      }
+      if (!currentCol) return;
+      if (/^(Page|Planogram|Store|Fixture|Printed|The Gift of Choice)/i.test(line)) return;
+      if (line.length < 2) return;
+
+      rowCounter++;
+      const position = `${currentCol}-R${rowCounter}`;
+      let rest = line;
+      let denom = "";
+      const denomMatch = rest.match(/\$?\d+\s*[-–]\s*\$?\d+|\$?\d+\b|Variable\b/i);
+      if (denomMatch) {
+        denom = denomMatch[0].replace(/\$/g,"");
+        rest = rest.replace(denomMatch[0]," ").trim();
+      }
+      out.push({
+        id:`pdf|${position}|${idx}`,
+        planogram:$("planogramName")?.value?.trim() || "PDF Planogram",
+        card:rest || "VERIFY - card name",
+        denomination:denom,
+        category:"",
+        column:currentCol,
+        row:`R${rowCounter}`,
+        position,
+        notes:"Imported from PDF",
+        confidence:"Low"
+      });
+    });
+  }
+
+  return out.sort((a,b)=>columnNumber(a.column)-columnNumber(b.column)||rowNumber(a.row)-rowNumber(b.row));
+}
+
+async function extractPdfFile(file) {
+  if (typeof pdfjsLib === "undefined") throw new Error("PDF reader did not load.");
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+
+  const allLines = [];
+  let totalTextItems = 0;
+
+  for (let p=1; p<=pdf.numPages; p++) {
+    $("pdfImportStatus").textContent = `Reading PDF page ${p} of ${pdf.numPages}…`;
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    totalTextItems += content.items.length;
+    allLines.push(...pdfTextRowsFromItems(content.items));
+  }
+
+  if (totalTextItems < 5 || allLines.join(" ").trim().length < 20) {
+    throw new Error("This PDF appears to be image-only/scanned. Use the Excel import for this file.");
+  }
+
+  const parsed = parsePdfTextToPlanogram(allLines);
+  if (!parsed.length) {
+    throw new Error("Text was found, but Planno could not identify Column/Row positions. Use Excel for this planogram.");
+  }
+
+  PDF_EXTRACTED_ROWS = parsed;
+  return parsed;
+}
+
+function renderPdfReview() {
+  if (!$("pdfReviewCard")) return;
+  if (!PDF_EXTRACTED_ROWS.length) {
+    $("pdfReviewCard").style.display="none";
+    $("pdfReviewList").innerHTML="";
+    return;
+  }
+
+  $("pdfReviewCard").style.display="block";
+  $("pdfReviewList").innerHTML = PDF_EXTRACTED_ROWS.map((r,i)=>`
+    <div class="pdfreviewrow">
+      <div><b>${esc(r.position)}</b><div class="small">${esc(r.confidence||"")}</div></div>
+      <input data-pdf-name="${i}" value="${esc(r.card)}" placeholder="Card name">
+      <input class="pdfdenom" data-pdf-denom="${i}" value="${esc(r.denomination||"")}" placeholder="Card Value">
+      <input class="pdfcat" data-pdf-cat="${i}" value="${esc(r.category||"")}" placeholder="Category">
+    </div>
+  `).join("");
+
+  document.querySelectorAll("[data-pdf-name]").forEach(el=>el.onchange=()=>{
+    PDF_EXTRACTED_ROWS[Number(el.dataset.pdfName)].card=el.value.trim();
+  });
+  document.querySelectorAll("[data-pdf-denom]").forEach(el=>el.onchange=()=>{
+    PDF_EXTRACTED_ROWS[Number(el.dataset.pdfDenom)].denomination=el.value.trim();
+  });
+  document.querySelectorAll("[data-pdf-cat]").forEach(el=>el.onchange=()=>{
+    PDF_EXTRACTED_ROWS[Number(el.dataset.pdfCat)].category=el.value.trim();
+  });
+}
+
+
+function standardizedPdfRows() {
+  const store = ($("storeName")?.value || currentStore || "").trim();
+  const address = ($("storeAddress").value || $("storeAddressSearch")?.value || currentStoreAddress || "").trim();
+  const city = ($("storeCity")?.value || currentStoreCity || "").trim();
+  const planName = ($("planogramName")?.value || "PDF Planogram").trim();
+
+  return PDF_EXTRACTED_ROWS.map(r => ({
+    "Store Name": store,
+    "Store ID": ($("storeId")?.value || "").trim(),
+    "Address": address,
+    "City": city,
+    "Planogram Name": planName,
+    "Card Name": r.card || "",
+    "Card Value": r.denomination || "",
+    "Category": r.category || "",
+    "Column": r.column || "",
+    "Row": r.row || "",
+    "Position": r.position || "",
+    "Confidence": r.confidence || "",
+    "Notes": r.notes || "Imported from PDF"
+  }));
+}
+
+function buildGeneratedExcelFromPdf() {
+  if (!PDF_EXTRACTED_ROWS.length) throw new Error("No PDF data to convert.");
+  if (typeof XLSX === "undefined") throw new Error("Excel engine did not load.");
+
+  const rows = standardizedPdfRows();
+  const wb = XLSX.utils.book_new();
+
+  const ws = XLSX.utils.json_to_sheet(rows, {
+    header: [
+      "Store Name","Store ID","Address","City","Planogram Name","Card Name",
+      "Card Value","Category","Column","Row","Position","Confidence","Notes"
+    ]
+  });
+
+  XLSX.utils.book_append_sheet(wb, ws, "Extracted Positions");
+
+  // Also include a clean reset database sheet so this file can be re-uploaded later.
+  const dbRows = rows.map(r => ({
+    "Planogram": r["Planogram Name"],
+    "Card Name": r["Card Name"],
+    "Card Value": r["Card Value"],
+    "Category": r["Category"],
+    "Column": r["Column"],
+    "Row": r["Row"],
+    "Position": r["Position"],
+    "Confidence": r["Confidence"],
+    "Notes": r["Notes"],
+    "Done": "☐"
+  }));
+  const dbws = XLSX.utils.json_to_sheet(dbRows);
+  XLSX.utils.book_append_sheet(wb, dbws, "Reset Database");
+
+  const safeStore = (($("storeName")?.value || "Store").trim()).replace(/[^a-z0-9_-]+/gi,"_");
+  const safePlan = (($("planogramName")?.value || "Planogram").trim()).replace(/[^a-z0-9_-]+/gi,"_");
+  GENERATED_PDF_XLSX_NAME = `${safeStore}_${safePlan}_converted.xlsx`;
+  GENERATED_PDF_XLSX = wb;
+
+  return {wb, rows};
+}
+
+function loadGeneratedExcelIntoPlanno() {
+  const built = buildGeneratedExcelFromPdf();
+
+  DATA = built.rows.map((r, i) => ({
+    id: `pdfexcel|${i}|${r.Position}|${r["Card Name"]}`,
+    planogram: r["Planogram Name"],
+    card: r["Card Name"],
+    denomination: r["Card Value"],
+    category: r.Category,
+    column: r.Column,
+    row: r.Row,
+    position: r.Position,
+    notes: r.Notes,
+    confidence: r.Confidence
+  }));
+
+  fileName = GENERATED_PDF_XLSX_NAME;
+  currentCol = columns()[0] || "";
+
+  saveImported();
+  afterLoad();
+
+  if ($("generatedExcelStatus")) {
+    $("generatedExcelStatus").textContent =
+      `✓ Excel structure created: ${GENERATED_PDF_XLSX_NAME} • ${DATA.length} positions loaded into Planogram + Database.`;
+  }
+
+  renderDatabase();
+  renderReset();
+  renderFinalReview();
+}
+
+function downloadGeneratedPdfExcel() {
+  try {
+    if (!GENERATED_PDF_XLSX) buildGeneratedExcelFromPdf();
+    XLSX.writeFile(GENERATED_PDF_XLSX, GENERATED_PDF_XLSX_NAME);
+    if ($("generatedExcelStatus")) {
+      $("generatedExcelStatus").textContent = `✓ Generated Excel downloaded: ${GENERATED_PDF_XLSX_NAME}`;
+    }
+  } catch (e) {
+    if ($("generatedExcelStatus")) {
+      $("generatedExcelStatus").textContent = "Excel download failed: " + e.message;
+    }
+  }
+}
+
+function usePdfData() {
+  loadGeneratedExcelIntoPlanno();
+  $("pdfImportStatus").textContent =
+    `✓ PDF converted to Excel structure and loaded into Planno.`;
+  show("reset");
 }
 
 function parseWorkbook(arrayBuffer) {
@@ -506,7 +815,7 @@ function renderVisualPlannogram() {
       cells += `<div class="visual-cell ${cls}">
         <b>${esc(r.position || `${c}-R${ri}`)}</b>
         <div>${esc(r.card)}</div>
-        ${r.denomination ? `<div class="meta">${esc(r.denomination)}</div>` : ""}
+        ${r.denomination ? `<div class="card-value">${esc(r.denomination)}</div>` : ""}
         <div class="visual-status">${esc(s)}</div>
       </div>`;
     }
@@ -549,7 +858,7 @@ async function buildPlannoPNG() {
   const colW = 270;
   const gap = 12;
   const margin = 34;
-  const titleH = 138;
+  const titleH = 166;
   const colHeaderH = 42;
   const rowH = 74;
 
@@ -565,20 +874,33 @@ async function buildPlannoPNG() {
   // Header
   ctx.fillStyle="#111111";
   ctx.font="bold 32px Arial";
-  ctx.fillText(store,margin,40);
+  ctx.fillText(store,margin,38);
 
-  ctx.font="bold 24px Arial";
-  ctx.fillText(planName,margin,74);
+  const storeId = ($("storeId")?.value || "").trim();
+  const location=[address,city].filter(Boolean).join(", ");
+  const reportDate = new Date().toLocaleDateString();
 
   ctx.fillStyle="#555555";
-  ctx.font="14px Arial";
-  const location=[address,city].filter(Boolean).join(", ");
-  if(location) ctx.fillText(location,margin,99);
+  ctx.font="bold 14px Arial";
+  if(storeId) ctx.fillText(`Store ID: ${storeId}`,margin,62);
+
+  ctx.font="13px Arial";
+  if(location) ctx.fillText(`Address: ${location}`,margin,84);
+
+  ctx.fillStyle="#111111";
+  ctx.font="bold 21px Arial";
+  ctx.fillText(`Planogram: ${planName}`,margin,111);
+
+  ctx.fillStyle="#555555";
+  ctx.font="13px Arial";
+  ctx.fillText(`Date: ${reportDate}`,margin,132);
 
   const counts=finalCounts();
+  const pct=counts.total ? Math.round((counts.complete/counts.total)*100) : 0;
+  ctx.font="bold 13px Arial";
   ctx.fillText(
-    `${counts.total} Total • ${counts.complete} Complete • ${counts.missing} Missing • ${counts.notComplete} Not Complete`,
-    margin,123
+    `${counts.total} Total • ${counts.complete} Complete • ${counts.missing} Missing • ${counts.notComplete} Not Complete • ${pct}% Complete`,
+    margin,153
   );
 
   // Plannogram grid
@@ -629,12 +951,14 @@ async function buildPlannoPNG() {
       const name=String(r.card||"");
       const maxChars=31;
       const shown=name.length>maxChars ? name.slice(0,maxChars-1)+"…" : name;
-      ctx.fillText(shown,x+8,y+37);
+      ctx.fillText(shown,x+8,y+36);
 
+      // Gift card value sits directly under the card name, matching the planogram.
       if(r.denomination){
-        ctx.fillStyle="#555555";
-        ctx.font="11px Arial";
-        ctx.fillText(String(r.denomination),x+8,y+54);
+        ctx.fillStyle="#444444";
+        ctx.font="bold 12px Arial";
+        const valueText = String(r.denomination).trim();
+        ctx.fillText(valueText,x+8,y+54);
       }
 
       if(status==="Complete") ctx.fillStyle="#2f7d32";
@@ -684,8 +1008,10 @@ function updatePdfReportSummary() {
   if (!$("pdfReportSummary")) return;
   const counts = finalCounts();
   const pct = counts.total ? Math.round((counts.complete / counts.total) * 100) : 0;
+  const store = ($("storeName")?.value || currentStore || "Store").trim();
+  const storeId = ($("storeId")?.value || "").trim();
   $("pdfReportSummary").innerHTML =
-    `<b>Final Report</b><br>` +
+    `<b>Final Report — ${esc(store)}</b>${storeId ? ` • Store ID: ${esc(storeId)}` : ""}<br>` +
     `${counts.total} total items • ${counts.complete} complete • ${counts.missing} missing • ${counts.notComplete} not complete • ${pct}% complete`;
 }
 
@@ -721,14 +1047,15 @@ async function generateOnePagePDF(openAfter=true) {
     const store = ($("storeName")?.value || currentStore || "Store").trim();
     const planName = ($("planogramName")?.value || fileName || "Plannogram").trim();
     const counts = finalCounts();
-    const safe = (store+"_"+planName+"_Missing_"+counts.missing).replace(/[^a-z0-9_-]+/gi,"_");
+    const sid = ($("storeId")?.value || "").trim();
+    const safe = ([store,sid,planName,"Missing_"+counts.missing].filter(Boolean).join("_")).replace(/[^a-z0-9_-]+/gi,"_");
     const blob = doc.output("blob");
     const name = safe+"_ONE_PAGE.pdf";
 
     const url = URL.createObjectURL(blob);
     if (openAfter) {
       window.open(url,"_blank");
-      $("planoPdfStatus").textContent="✓ Final PDF report generated with Complete / Missing / Not Complete totals.";
+      $("planoPdfStatus").textContent="✓ Final one-page PDF generated with store details, card values, and reset totals.";
     }
     return {blob,name,url};
   } catch(e) {
@@ -1656,6 +1983,41 @@ $("downloadFinalPdf").addEventListener("click", downloadFinalPDF);
 
 
 
+
+$("pdfFile").addEventListener("change", async e => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+
+  $("pdfImportStatus").textContent = "Reading PDF…";
+  try {
+    await extractPdfFile(f);
+    renderPdfReview();
+    buildGeneratedExcelFromPdf();
+    $("pdfImportStatus").textContent =
+      `✓ Extracted ${PDF_EXTRACTED_ROWS.length} positions and created Excel-ready data. Review below, then tap Create Excel + Planogram.`;
+    if ($("generatedExcelStatus")) {
+      $("generatedExcelStatus").textContent =
+        `Generated Excel ready: ${GENERATED_PDF_XLSX_NAME}`;
+    }
+  } catch (err) {
+    console.error(err);
+    PDF_EXTRACTED_ROWS = [];
+    renderPdfReview();
+    $("pdfImportStatus").textContent = "PDF import failed: " + err.message;
+  }
+});
+
+$("convertPdfToPlanogram").addEventListener("click", usePdfData);
+$("downloadPdfExcel").addEventListener("click", downloadGeneratedPdfExcel);
+$("clearPdfData").addEventListener("click", () => {
+  PDF_EXTRACTED_ROWS = [];
+  GENERATED_PDF_XLSX = null;
+  GENERATED_PDF_XLSX_NAME = "";
+  $("pdfFile").value = "";
+  renderPdfReview();
+  $("pdfImportStatus").textContent = "PDF data cleared.";
+});
+
 $("xlsxFile").addEventListener("change", async e => {
   const f = e.target.files?.[0];
   if (!f) return;
@@ -1760,7 +2122,7 @@ function cardHtml(r) {
       <div class="pos">${esc(r.position || r.column)}</div>
       <div class="name">
         ${esc(r.card)}
-        ${r.denomination ? `<div class="meta">Denomination: ${esc(r.denomination)}</div>` : ""}
+        ${r.denomination ? `<div class="meta">"Card Value": ${esc(r.denomination)}</div>` : ""}
         ${r.category ? `<div class="meta">Category: ${esc(r.category)}</div>` : ""}
         <div class="meta"><b>Status: ${esc(status)}</b></div>
       </div>
