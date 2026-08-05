@@ -1,24 +1,19 @@
-# Plano
+# Plano — Clean Final Build
 
-Mobile-first planogram reset app.
+Core workflow:
+1. Select/save Store.
+2. Type address and choose an address suggestion.
+3. Optional: attach the paper planogram image as reference.
+4. Upload the converted Excel planogram.
+5. Excel Column + Row is the layout source of truth.
+6. Reset cards and mark Complete / Missing / Not Complete.
+7. Progress shows the same beautiful planogram grid.
+8. Generate PNG.
+9. Generate a ONE-PAGE PDF made from that exact PNG layout.
 
-## Included
-- Stores with name, address, city and store/location ID
-- Google Maps store lookup from Store Name + City
-- Open saved address in Google Maps
-- Excel import
-- Scan/photo attachment
-- OCR-assisted scan extraction
-- Review/edit extracted rows
-- Export extracted Excel
-- Saved planograms by store
-- Complete / Missing / Not Complete checklist
-- Bulk status controls
-- Search/filter database
-- Live visual progress dashboard
-- PNG visual planogram export in-page + iPhone share
-- PDF export
+No OCR / AI extraction is included in this build.
 
-### Important
-True automatic Google address autofill requires Google Places API credentials.
-This GitHub Pages build avoids exposing a private API key by using Google Maps search URLs.
+Status colours:
+- Green = Complete
+- Yellow = Missing
+- Red = Not Complete

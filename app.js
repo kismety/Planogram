@@ -7,32 +7,6 @@ let currentStoreAddress = "";
 let currentStoreCity = "";
 let currentStoreId = "";
 let currentScanImage = "";
-let EXTRACTED_SCAN_ROWS = [];
-
-const KNOWN_PRODUCTS = [
-  ["Sephora","Retail / Beauty"],["Xbox","Gaming"],["PlayStation","Gaming"],
-  ["Nintendo","Gaming"],["Roblox","Gaming"],["Google Play","Gaming / Digital"],
-  ["Boston Pizza","Dining"],["The Keg","Dining"],["Keg","Dining"],
-  ["Starbucks","Dining"],["Tim Hortons","Dining"],["Subway","Dining"],
-  ["DoorDash","Dining"],["Uber Eats","Dining"],["Dairy Queen","Dining"],
-  ["McDonald's","Dining"],["Wendy's","Dining"],["Moxies","Dining"],
-  ["Earls","Dining"],["Cactus Club Cafe","Dining"],["Chop Steakhouse","Dining"],
-  ["Home Depot","Home"],["Home Hardware","Home"],["IKEA","Home"],["RONA","Home"],
-  ["Homesense","Retail / Home"],["Urban Barn","Home"],["JYSK","Home"],
-  ["PetSmart","Pets"],["Pet Valu","Pets"],["Esso","Fuel / Auto"],
-  ["WestJet","Travel"],["Air Canada","Travel"],["Hotels.com","Travel"],["Uber","Travel / Transportation"],
-  ["Amazon","Retail / Online"],["Best Buy","Retail / Electronics"],["Staples","Retail / Office"],
-  ["Dollarama","Retail"],["Michaels","Retail / Crafts"],["Golf Town","Retail / Sports"],
-  ["Cabela's","Retail / Sports"],["Sport Chek","Retail / Sports"],["Sporting Life","Retail / Sports"],
-  ["Lululemon","Retail / Fashion"],["Roots","Retail / Fashion"],["Winners","Retail"],
-  ["Marshalls","Retail"],["Indigo","Retail / Books"],["Apple","Digital / Technology"],
-  ["Visa","Open Loop / Payment"],["Mastercard","Open Loop / Payment"],
-  ["One4all","Multi-brand"],["Happy Teen","Multi-brand"],["Happy Kid","Multi-brand"],
-  ["Happy Birthday","Multi-brand"],["Happy Moments","Multi-brand"],["Home Sweet Home","Multi-brand"],
-  ["Retail Therapy","Multi-brand"],["Fun & Fabulous","Multi-brand"],["Let's Eat","Multi-brand"],
-  ["Cheers To You","Multi-brand"],["Game & Grub","Multi-brand"]
-];
-
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({
   "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
@@ -242,233 +216,25 @@ async function restoreBackupFromFile(file) {
 
 
 
-function normalizeOcrText(s) {
-  return String(s || "")
-    .replace(/[|_[\]{}]/g," ")
-    .replace(/\s+/g," ")
-    .trim();
-}
 
-function categoryForProduct(name) {
-  const low = String(name||"").toLowerCase();
-  const sorted = [...KNOWN_PRODUCTS].sort((a,b)=>b[0].length-a[0].length);
-  for (const [brand,cat] of sorted) {
-    if (low.includes(brand.toLowerCase())) return cat;
-  }
-  return "";
-}
 
-function levenshtein(a,b) {
-  a=String(a||"").toLowerCase(); b=String(b||"").toLowerCase();
-  const m=a.length,n=b.length;
-  const dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
-  for(let i=0;i<=m;i++)dp[i][0]=i;
-  for(let j=0;j<=n;j++)dp[0][j]=j;
-  for(let i=1;i<=m;i++){
-    for(let j=1;j<=n;j++){
-      dp[i][j]=Math.min(
-        dp[i-1][j]+1,
-        dp[i][j-1]+1,
-        dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1)
-      );
-    }
-  }
-  return dp[m][n];
-}
 
-function normalizeKnownProduct(raw) {
-  const clean = normalizeOcrText(raw);
-  if (!clean) return {name:"",category:"",confidence:"Low"};
-  let best=null, bestScore=Infinity;
-  for (const [brand,cat] of KNOWN_PRODUCTS) {
-    const score=levenshtein(clean,brand);
-    const norm=score/Math.max(clean.length,brand.length,1);
-    if (norm<bestScore) {
-      bestScore=norm;
-      best={brand,cat};
-    }
-  }
-  if (best && bestScore<=0.28) return {name:best.brand,category:best.cat,confidence:"Medium"};
-  const exactCat=categoryForProduct(clean);
-  return {name:clean,category:exactCat,confidence:exactCat?"High":"Low"};
-}
 
-function splitColumnTextToRows(text, rowCount) {
-  let lines = String(text||"")
-    .split(/\n+/)
-    .map(normalizeOcrText)
-    .filter(x=>x.length>=2)
-    .filter(x=>!/^[\d$.,%\- ]+$/.test(x));
 
-  // Merge obvious denomination-only fragments into previous line.
-  const merged=[];
-  for (const line of lines) {
-    if (/^\$?\d+(\s*[-–]\s*\$?\d+)?$/.test(line) && merged.length) {
-      merged[merged.length-1] += " " + line;
-    } else {
-      merged.push(line);
-    }
-  }
-  lines=merged;
 
-  const out=[];
-  for(let i=0;i<rowCount;i++) {
-    const raw = lines[i] || "";
-    const norm = normalizeKnownProduct(raw);
-    const denomMatch = raw.match(/\$?\d+\s*[-–]\s*\$?\d+|\$?\d+/);
-    out.push({
-      raw,
-      name:norm.name || (raw ? raw : "VERIFY - unreadable"),
-      denomination:denomMatch ? denomMatch[0].replace(/\$/g,"") : "",
-      category:norm.category || "",
-      confidence: raw ? norm.confidence : "Low"
-    });
-  }
-  return out;
-}
 
-async function imageToColumnCanvas(img, colIndex, totalCols) {
-  const c=document.createElement("canvas");
-  const colW=img.naturalWidth/totalCols;
-  const scale=Math.max(1,Math.min(2.3,1200/colW));
-  c.width=Math.round(colW*scale);
-  c.height=Math.round(img.naturalHeight*scale);
-  const ctx=c.getContext("2d");
-  ctx.filter="grayscale(1) contrast(1.55)";
-  ctx.drawImage(
-    img,
-    colIndex*colW,0,colW,img.naturalHeight,
-    0,0,c.width,c.height
-  );
-  return c;
-}
 
-async function extractScanToRows() {
-  if (!currentScanImage) throw new Error("Attach a planogram image first.");
-  if (typeof Tesseract === "undefined") throw new Error("OCR engine did not load.");
 
-  const cols=Math.max(1,Math.min(30,Number($("scanColumns").value)||1));
-  const rows=Math.max(1,Math.min(40,Number($("scanRows").value)||1));
 
-  const img=new Image();
-  await new Promise((resolve,reject)=>{
-    img.onload=resolve;
-    img.onerror=()=>reject(new Error("Could not read image."));
-    img.src=currentScanImage;
-  });
 
-  const worker=await Tesseract.createWorker("eng",1,{
-    logger:m=>{
-      if (m.status==="recognizing text") {
-        $("extractStatus").textContent="Reading scan… "+Math.round((m.progress||0)*100)+"%";
-      }
-    }
-  });
-  await worker.setParameters({tessedit_pageseg_mode:"6", preserve_interword_spaces:"1"});
 
-  const extracted=[];
-  for(let ci=0;ci<cols;ci++) {
-    $("extractStatus").textContent=`Reading column C${ci+1} of C${cols}…`;
-    const canvas=await imageToColumnCanvas(img,ci,cols);
-    const result=await worker.recognize(canvas);
-    const parsed=splitColumnTextToRows(result.data.text,rows);
-    parsed.forEach((item,ri)=>{
-      extracted.push({
-        id:`scan|${ci}|${ri}|${Date.now()}`,
-        planogram:$("planogramName").value.trim() || "Scanned Planogram",
-        card:item.name,
-        denomination:item.denomination,
-        category:item.category,
-        column:"C"+(ci+1),
-        row:"R"+(ri+1),
-        position:"C"+(ci+1)+"-R"+(ri+1),
-        notes:item.raw && item.raw!==item.name ? "OCR: "+item.raw : "",
-        confidence:item.confidence
-      });
-    });
-  }
 
-  await worker.terminate();
-  EXTRACTED_SCAN_ROWS=extracted;
-  return extracted;
-}
 
-function renderExtractedReview() {
-  if (!$("extractedReviewList")) return;
-  if (!EXTRACTED_SCAN_ROWS.length) {
-    $("extractedReviewCard").style.display="none";
-    $("extractedReviewList").innerHTML="";
-    return;
-  }
 
-  $("extractedReviewCard").style.display="block";
-  $("extractedReviewList").innerHTML=EXTRACTED_SCAN_ROWS.map((r,i)=>`
-    <div class="extractrow">
-      <div>
-        <div class="extractpos">${esc(r.position)}</div>
-        <div class="extractconf">${esc(r.confidence || "")}</div>
-      </div>
-      <input data-er-name="${i}" value="${esc(r.card)}" placeholder="Card name">
-      <input class="denomfield" data-er-denom="${i}" value="${esc(r.denomination||"")}" placeholder="Denomination">
-      <input class="catfield" data-er-cat="${i}" value="${esc(r.category||"")}" placeholder="Category">
-    </div>
-  `).join("");
 
-  document.querySelectorAll("[data-er-name]").forEach(el=>el.onchange=()=>{
-    const i=Number(el.dataset.erName);
-    EXTRACTED_SCAN_ROWS[i].card=el.value.trim();
-    if (!EXTRACTED_SCAN_ROWS[i].category) {
-      EXTRACTED_SCAN_ROWS[i].category=categoryForProduct(el.value.trim());
-    }
-  });
-  document.querySelectorAll("[data-er-denom]").forEach(el=>el.onchange=()=>{
-    EXTRACTED_SCAN_ROWS[Number(el.dataset.erDenom)].denomination=el.value.trim();
-  });
-  document.querySelectorAll("[data-er-cat]").forEach(el=>el.onchange=()=>{
-    EXTRACTED_SCAN_ROWS[Number(el.dataset.erCat)].category=el.value.trim();
-  });
-}
 
-function createPlanogramFromScan() {
-  if (!EXTRACTED_SCAN_ROWS.length) {
-    alert("Extract the scan first.");
-    return;
-  }
-  DATA=EXTRACTED_SCAN_ROWS.map((r,i)=>({...r,id:`scanrow|${i}|${r.position}|${r.card}`}));
-  fileName=($("planogramName").value.trim() || "Scanned Planogram") + ".scan";
-  currentCol=columns()[0] || "";
-  saveImported();
-  afterLoad();
-  $("uploadStatus").textContent="✓ Scanned planogram created. Review the Reset tab, then Save Planogram.";
-  show("reset");
-}
 
-function exportExtractedExcel() {
-  if (!EXTRACTED_SCAN_ROWS.length) {
-    alert("Extract the scan first.");
-    return;
-  }
-  if (typeof XLSX==="undefined") {
-    alert("Excel export engine did not load.");
-    return;
-  }
 
-  const store=$("storeName").value.trim();
-  const address=$("storeAddress").value.trim();
-  const city=$("storeCity").value.trim();
-  const planName=$("planogramName").value.trim() || "Scanned Planogram";
-
-  const aoa=[["Store Name","Address","City","Planogram Name","Card Name","Denomination","Category","Column","Row","Position","Confidence","Notes"]];
-  EXTRACTED_SCAN_ROWS.forEach(r=>aoa.push([
-    store,address,city,planName,r.card,r.denomination,r.category,r.column,r.row,r.position,r.confidence,r.notes
-  ]));
-
-  const wb=XLSX.utils.book_new();
-  const ws=XLSX.utils.aoa_to_sheet(aoa);
-  XLSX.utils.book_append_sheet(wb,ws,"Extracted Positions");
-  const safe=(store+"_"+planName).replace(/[^a-z0-9_-]+/gi,"_");
-  XLSX.writeFile(wb,safe+"_extracted.xlsx");
-}
 
 function storeIndex() {
   try { return JSON.parse(localStorage.getItem("planogram_stores") || "[]"); }
@@ -484,6 +250,73 @@ function storeKey(name,address,city) {
 function googleStoreSearchUrl(name, city) {
   const q = [name, city].filter(Boolean).join(", ");
   return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+}
+
+
+let addressTimer = null;
+
+function formatPhotonFeature(f) {
+  const p = f.properties || {};
+  const street = [p.housenumber, p.street].filter(Boolean).join(" ");
+  const city = p.city || p.town || p.village || p.locality || "";
+  const province = p.state || "";
+  const postcode = p.postcode || "";
+  const country = p.country || "Canada";
+  const full = [street || p.name, city, province, postcode, country].filter(Boolean).join(", ");
+  return {full, city: [city, province].filter(Boolean).join(", "), label: full};
+}
+
+async function searchAddresses(query) {
+  if (!query || query.trim().length < 3) return [];
+  const url = "https://photon.komoot.io/api/?limit=6&q=" + encodeURIComponent(query.trim() + ", Canada");
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error("Address lookup unavailable.");
+  const data = await resp.json();
+  return (data.features || []).map(formatPhotonFeature).filter(x=>x.full);
+}
+
+function bindAddressAutocomplete(inputId, suggestionsId, hiddenAddressId, hiddenCityId) {
+  const input = $(inputId);
+  const box = $(suggestionsId);
+  if (!input || !box) return;
+
+  input.addEventListener("input", () => {
+    clearTimeout(addressTimer);
+    const q = input.value.trim();
+    if (q.length < 3) { box.style.display="none"; box.innerHTML=""; return; }
+
+    addressTimer = setTimeout(async () => {
+      try {
+        const results = await searchAddresses(q);
+        box.innerHTML = results.map((r,i)=>`
+          <div class="address-option" data-addr-index="${i}">
+            <div class="address-main">${esc(r.label)}</div>
+          </div>`).join("");
+        box.style.display = results.length ? "block" : "none";
+
+        box.querySelectorAll("[data-addr-index]").forEach(el=>{
+          el.addEventListener("click",()=>{
+            const r=results[Number(el.dataset.addrIndex)];
+            input.value=r.full;
+            $(hiddenAddressId).value=r.full;
+            $(hiddenCityId).value=r.city;
+            box.style.display="none";
+          });
+        });
+      } catch(e) {
+        box.style.display="none";
+      }
+    }, 300);
+  });
+
+  input.addEventListener("blur",()=>setTimeout(()=>{box.style.display="none"},180));
+}
+
+function openAddressInGoogleMaps(address) {
+  const q = String(address||"").trim();
+  if (!q) { alert("Choose or enter an address first."); return; }
+  // Same-tab navigation works reliably on iPhone Safari.
+  window.location.href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
 }
 
 function mapsUrl(address, city) {
@@ -516,6 +349,7 @@ function selectStore(rec) {
 
   if ($("storeName")) $("storeName").value = currentStore;
   if ($("storeAddress")) $("storeAddress").value = currentStoreAddress;
+  if ($("storeAddressSearch")) $("storeAddressSearch").value = currentStoreAddress;
   if ($("storeCity")) $("storeCity").value = currentStoreCity;
   if ($("storeId")) $("storeId").value = currentStoreId;
 
@@ -524,6 +358,7 @@ function selectStore(rec) {
 function editStoreForm(rec) {
   $("storeMgrName").value = rec.name || "";
   $("storeMgrAddress").value = rec.address || "";
+  $("storeMgrAddressSearch").value = rec.address || "";
   $("storeMgrCity").value = rec.city || "";
   $("storeMgrId").value = rec.storeId || "";
   window.scrollTo({top:0,behavior:"smooth"});
@@ -621,27 +456,45 @@ function finalCounts() {
 function renderVisualPlanogram() {
   if (!$("visualPlanogram")) return;
   if (!DATA.length) {
-    $("visualPlanogram").innerHTML = '<div class="small">Upload a planogram to see the visual layout.</div>';
+    $("visualPlanogram").innerHTML = '<div class="small">Upload an Excel planogram to see the visual layout.</div>';
     return;
   }
 
   const cols = columns();
+  const rowNums = DATA.map(r => rowNumber(r.row)).filter(n => Number.isFinite(n) && n < 9999);
+  const maxRow = rowNums.length ? Math.max(...rowNums) : Math.max(...cols.map(c => DATA.filter(r=>r.column===c).length), 1);
+
   $("visualPlanogram").innerHTML = cols.map(c => {
-    const rows = DATA.filter(r => r.column === c)
-      .sort((a,b) => rowNumber(a.row)-rowNumber(b.row));
+    const byRow = new Map();
+    DATA.filter(r => r.column === c).forEach(r => {
+      const n = rowNumber(r.row);
+      if (Number.isFinite(n) && n < 9999) byRow.set(n, r);
+    });
+
+    let cells = "";
+    for (let ri=1; ri<=maxRow; ri++) {
+      const r = byRow.get(ri);
+      if (!r) {
+        cells += `<div class="visual-cell visual-empty">
+          <b>${esc(c)}-R${ri}</b>
+          <div class="visual-empty-label">Empty position</div>
+        </div>`;
+        continue;
+      }
+
+      const s = getStatus(r);
+      const cls = s === "Complete" ? "complete" : s === "Missing" ? "missing" : "notcomplete";
+      cells += `<div class="visual-cell ${cls}">
+        <b>${esc(r.position || `${c}-R${ri}`)}</b>
+        <div>${esc(r.card)}</div>
+        ${r.denomination ? `<div class="meta">${esc(r.denomination)}</div>` : ""}
+        <div class="visual-status">${esc(s)}</div>
+      </div>`;
+    }
 
     return `<div class="visual-column">
       <div class="visual-column-title">${esc(c)}</div>
-      ${rows.map(r => {
-        const s = getStatus(r);
-        const cls = s === "Complete" ? "complete" : s === "Missing" ? "missing" : "notcomplete";
-        return `<div class="visual-cell ${cls}">
-          <b>${esc(r.position || (c + "-" + r.row))}</b>
-          <div>${esc(r.card)}</div>
-          ${r.denomination ? `<div class="meta">${esc(r.denomination)}</div>` : ""}
-          <div class="visual-status">${esc(s)}</div>
-        </div>`;
-      }).join("")}
+      ${cells}
     </div>`;
   }).join("");
 }
@@ -657,127 +510,217 @@ async function buildPlanoPNG() {
   const address = ($("storeAddress")?.value || currentStoreAddress || "").trim();
   const city = ($("storeCity")?.value || currentStoreCity || "").trim();
   const planName = ($("planogramName")?.value || fileName || "Planogram").trim();
+
   const cols = columns();
   if (!cols.length) throw new Error("No columns found.");
 
-  const grouped = {};
+  const rowNums = DATA.map(r => rowNumber(r.row)).filter(n => Number.isFinite(n) && n < 9999);
+  const maxRow = rowNums.length ? Math.max(...rowNums) : Math.max(...cols.map(c => DATA.filter(r=>r.column===c).length), 1);
+
+  const matrix = {};
   cols.forEach(c => {
-    grouped[c] = DATA.filter(r => r.column === c)
-      .sort((a,b) => rowNumber(a.row)-rowNumber(b.row));
+    matrix[c] = new Map();
+    DATA.filter(r=>r.column===c).forEach(r => {
+      const n = rowNumber(r.row);
+      if (Number.isFinite(n) && n < 9999) matrix[c].set(n,r);
+    });
   });
 
-  const colW = 300;
-  const gap = 16;
-  const margin = 36;
-  const headerH = 140;
-  const rowH = 78;
-  const maxRows = Math.max(...cols.map(c => grouped[c].length), 1);
+  // Wide master planogram, matching C1..Cn across and R1..Rn vertically.
+  const colW = 270;
+  const gap = 12;
+  const margin = 34;
+  const titleH = 138;
+  const colHeaderH = 42;
+  const rowH = 74;
 
   const canvas = $("planoExportCanvas");
   const ctx = canvas.getContext("2d");
 
-  canvas.width = margin*2 + cols.length*colW + Math.max(0, cols.length-1)*gap;
-  canvas.height = headerH + 48 + maxRows*rowH + 70;
+  canvas.width = margin*2 + cols.length*colW + Math.max(0,cols.length-1)*gap;
+  canvas.height = titleH + colHeaderH + maxRow*rowH + 68;
 
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle="#ffffff";
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
   // Header
-  ctx.fillStyle = "#111111";
-  ctx.font = "bold 34px Arial";
-  ctx.fillText(store, margin, 42);
+  ctx.fillStyle="#111111";
+  ctx.font="bold 32px Arial";
+  ctx.fillText(store,margin,40);
 
-  ctx.font = "bold 25px Arial";
-  ctx.fillText(planName, margin, 78);
+  ctx.font="bold 24px Arial";
+  ctx.fillText(planName,margin,74);
 
-  ctx.fillStyle = "#555555";
-  ctx.font = "15px Arial";
-  const location = [address, city].filter(Boolean).join(", ");
-  if (location) ctx.fillText(location, margin, 104);
+  ctx.fillStyle="#555555";
+  ctx.font="14px Arial";
+  const location=[address,city].filter(Boolean).join(", ");
+  if(location) ctx.fillText(location,margin,99);
 
-  const counts = finalCounts();
-  ctx.font = "14px Arial";
+  const counts=finalCounts();
   ctx.fillText(
     `${counts.total} Total • ${counts.complete} Complete • ${counts.missing} Missing • ${counts.notComplete} Not Complete`,
-    margin, 128
+    margin,123
   );
 
-  cols.forEach((c, ci) => {
-    const x = margin + ci*(colW+gap);
+  // Planogram grid
+  cols.forEach((c,ci)=>{
+    const x=margin+ci*(colW+gap);
 
-    ctx.fillStyle = "#111111";
-    ctx.fillRect(x, headerH, colW, 44);
+    ctx.fillStyle="#111111";
+    ctx.fillRect(x,titleH,colW,colHeaderH);
+    ctx.fillStyle="#ffffff";
+    ctx.font="bold 20px Arial";
+    ctx.textAlign="center";
+    ctx.fillText(c,x+colW/2,titleH+27);
+    ctx.textAlign="left";
 
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 21px Arial";
-    ctx.fillText(c, x+12, headerH+29);
+    for(let ri=1;ri<=maxRow;ri++){
+      const y=titleH+colHeaderH+(ri-1)*rowH;
+      const r=matrix[c].get(ri);
 
-    grouped[c].forEach((r, ri) => {
-      const y = headerH + 44 + ri*rowH;
-      const status = getStatus(r);
+      if(!r){
+        ctx.fillStyle="#fafafa";
+        ctx.fillRect(x,y,colW,rowH);
+        ctx.strokeStyle="#dedede";
+        ctx.strokeRect(x,y,colW,rowH);
 
-      // Requested colors
-      if (status === "Complete") ctx.fillStyle = "#e7f5e5";
-      else if (status === "Missing") ctx.fillStyle = "#fff3bf";
-      else ctx.fillStyle = "#fde2e2";
+        ctx.fillStyle="#aaaaaa";
+        ctx.font="bold 11px Arial";
+        ctx.fillText(`${c}-R${ri}`,x+8,y+17);
+        ctx.font="12px Arial";
+        ctx.fillText("Empty",x+8,y+40);
+        continue;
+      }
+
+      const status=getStatus(r);
+      // Requested colours
+      if(status==="Complete") ctx.fillStyle="#e7f5e5";
+      else if(status==="Missing") ctx.fillStyle="#fff3bf";
+      else ctx.fillStyle="#fde2e2";
 
       ctx.fillRect(x,y,colW,rowH);
-      ctx.strokeStyle = "#cfcfcf";
+      ctx.strokeStyle="#c7c7c7";
       ctx.strokeRect(x,y,colW,rowH);
 
-      ctx.fillStyle = "#111111";
-      ctx.font = "bold 13px Arial";
-      ctx.fillText(r.position || `${c}-${r.row}`, x+9, y+18);
+      ctx.fillStyle="#111111";
+      ctx.font="bold 11px Arial";
+      ctx.fillText(r.position || `${c}-R${ri}`,x+8,y+16);
 
-      ctx.font = "14px Arial";
-      const label = String(r.card||"");
-      const shortLabel = label.length > 34 ? label.slice(0,33)+"…" : label;
-      ctx.fillText(shortLabel, x+9, y+41);
+      ctx.font="bold 13px Arial";
+      const name=String(r.card||"");
+      const maxChars=31;
+      const shown=name.length>maxChars ? name.slice(0,maxChars-1)+"…" : name;
+      ctx.fillText(shown,x+8,y+37);
 
-      if (status === "Complete") ctx.fillStyle = "#2f7d32";
-      else if (status === "Missing") ctx.fillStyle = "#946e00";
-      else ctx.fillStyle = "#a33c3c";
-
-      ctx.font = "bold 12px Arial";
-      ctx.fillText(status, x+9, y+61);
-
-      if (r.denomination) {
-        ctx.fillStyle = "#666666";
-        ctx.font = "11px Arial";
-        ctx.fillText(String(r.denomination), x+colW-8, y+61, 95);
+      if(r.denomination){
+        ctx.fillStyle="#555555";
+        ctx.font="11px Arial";
+        ctx.fillText(String(r.denomination),x+8,y+54);
       }
-    });
+
+      if(status==="Complete") ctx.fillStyle="#2f7d32";
+      else if(status==="Missing") ctx.fillStyle="#946e00";
+      else ctx.fillStyle="#a33c3c";
+      ctx.font="bold 11px Arial";
+      ctx.textAlign="right";
+      ctx.fillText(status,x+colW-8,y+64);
+      ctx.textAlign="left";
+    }
   });
 
   // Legend
-  const ly = canvas.height - 34;
-  const legend = [
+  const ly=canvas.height-34;
+  const legend=[
     ["#e7f5e5","Complete"],
     ["#fff3bf","Missing"],
-    ["#fde2e2","Not Complete"]
+    ["#fde2e2","Not Complete"],
+    ["#fafafa","Empty"]
   ];
-  let lx = margin;
-  legend.forEach(([color,label]) => {
-    ctx.fillStyle = color;
-    ctx.fillRect(lx,ly,22,22);
-    ctx.strokeStyle = "#bbb";
-    ctx.strokeRect(lx,ly,22,22);
-    ctx.fillStyle = "#111";
-    ctx.font = "13px Arial";
-    ctx.fillText(label,lx+30,ly+16);
-    lx += 150;
+  let lx=margin;
+  legend.forEach(([color,label])=>{
+    ctx.fillStyle=color;
+    ctx.fillRect(lx,ly,20,20);
+    ctx.strokeStyle="#bbbbbb";
+    ctx.strokeRect(lx,ly,20,20);
+    ctx.fillStyle="#111111";
+    ctx.font="12px Arial";
+    ctx.fillText(label,lx+27,ly+14);
+    lx+=135;
   });
 
-  const blob = await new Promise((resolve,reject) => {
-    canvas.toBlob(b => b ? resolve(b) : reject(new Error("PNG generation failed.")), "image/png");
+  const blob=await new Promise((resolve,reject)=>{
+    canvas.toBlob(b=>b?resolve(b):reject(new Error("PNG generation failed.")),"image/png");
   });
 
-  const safeStore = store.replace(/[^a-z0-9_-]+/gi,"_");
-  const safePlan = planName.replace(/[^a-z0-9_-]+/gi,"_");
-  PLANO_PNG_NAME = `${safeStore}_${safePlan}.png`;
-  PLANO_PNG_BLOB = blob;
-
+  const safeStore=store.replace(/[^a-z0-9_-]+/gi,"_");
+  const safePlan=planName.replace(/[^a-z0-9_-]+/gi,"_");
+  PLANO_PNG_NAME=`${safeStore}_${safePlan}.png`;
+  PLANO_PNG_BLOB=blob;
   return {blob,name:PLANO_PNG_NAME};
+}
+
+
+async function generateOnePagePDF(openAfter=true) {
+  try {
+    if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("PDF engine did not load.");
+
+    // Build the exact same beautiful planogram image first.
+    await buildPlanoPNG();
+    const canvas = $("planoExportCanvas");
+    const imgData = canvas.toDataURL("image/png", 1.0);
+
+    const { jsPDF } = window.jspdf;
+    const landscape = canvas.width >= canvas.height;
+    const doc = new jsPDF({
+      orientation: landscape ? "landscape" : "portrait",
+      unit: "pt",
+      format: "a4",
+      compress: true
+    });
+
+    const pw = doc.internal.pageSize.getWidth();
+    const ph = doc.internal.pageSize.getHeight();
+    const margin = 12;
+    const scale = Math.min((pw-margin*2)/canvas.width, (ph-margin*2)/canvas.height);
+    const w = canvas.width*scale;
+    const h = canvas.height*scale;
+    const x = (pw-w)/2;
+    const y = (ph-h)/2;
+
+    doc.addImage(imgData,"PNG",x,y,w,h,undefined,"FAST");
+
+    const store = ($("storeName")?.value || currentStore || "Store").trim();
+    const planName = ($("planogramName")?.value || fileName || "Planogram").trim();
+    const safe = (store+"_"+planName).replace(/[^a-z0-9_-]+/gi,"_");
+    const blob = doc.output("blob");
+    const name = safe+"_ONE_PAGE.pdf";
+
+    const url = URL.createObjectURL(blob);
+    if (openAfter) {
+      window.open(url,"_blank");
+      $("planoPdfStatus").textContent="✓ One-page PDF generated from the same PNG layout.";
+    }
+    return {blob,name,url};
+  } catch(e) {
+    $("planoPdfStatus").textContent="PDF failed: "+e.message;
+    throw e;
+  }
+}
+
+async function shareOnePagePDF() {
+  try {
+    const result = await generateOnePagePDF(false);
+    const file = new File([result.blob], result.name, {type:"application/pdf"});
+    if (navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({title:"Plano",files:[file]});
+      $("planoPdfStatus").textContent="✓ PDF shared.";
+    } else {
+      window.open(result.url,"_blank");
+      $("planoPdfStatus").textContent="PDF opened. Use Safari Share to save it.";
+    }
+  } catch(e) {
+    if (e.name!=="AbortError") $("planoPdfStatus").textContent="Could not share PDF: "+e.message;
+  }
 }
 
 async function generatePlanoPNG() {
@@ -1430,7 +1373,7 @@ function saveAsNamedPlanogram() {
   }
   const name = $("planogramName").value.trim();
   const store = $("storeName").value.trim();
-  const storeAddress = $("storeAddress").value.trim();
+  const storeAddress = ($("storeAddress").value || $("storeAddressSearch").value).trim();
   const storeCity = $("storeCity").value.trim();
   const storeId = $("storeId").value.trim();
   currentStore = store;
@@ -1464,7 +1407,6 @@ function saveAsNamedPlanogram() {
     storeCity,
     storeId,
     scanImage: currentScanImage || "",
-    extractedRows: EXTRACTED_SCAN_ROWS || [],
     fileName,
     savedAt: new Date().toISOString(),
     currentCol,
@@ -1517,13 +1459,12 @@ function openSavedPlanogram(id) {
     currentStoreCity = record.storeCity || "";
     currentStoreId = record.storeId || "";
     currentScanImage = record.scanImage || "";
-    EXTRACTED_SCAN_ROWS = Array.isArray(record.extractedRows) ? record.extractedRows : [];
     if ($("planogramName")) $("planogramName").value = record.name || "";
     if ($("storeName")) $("storeName").value = record.store || "";
     if ($("storeAddress")) $("storeAddress").value = record.storeAddress || "";
+    if ($("storeAddressSearch")) $("storeAddressSearch").value = record.storeAddress || "";
     if ($("storeCity")) $("storeCity").value = record.storeCity || "";
     if ($("storeId")) $("storeId").value = record.storeId || "";
-    renderExtractedReview();
     if ($("scanPreview")) {
       if (currentScanImage) {
         $("scanPreview").src = currentScanImage;
@@ -1631,33 +1572,11 @@ function loadSaved() {
 
 
 
-$("extractScan").addEventListener("click", async () => {
-  try {
-    $("extractStatus").textContent="Preparing OCR…";
-    await extractScanToRows();
-    renderExtractedReview();
-    $("extractStatus").textContent="✓ Extraction complete. Review the rows below before creating the planogram.";
-    $("extractedReviewCard").scrollIntoView({behavior:"smooth",block:"start"});
-  } catch (e) {
-    console.error(e);
-    $("extractStatus").textContent="Extraction failed: "+e.message;
-  }
-});
-
-$("clearExtracted").addEventListener("click", () => {
-  EXTRACTED_SCAN_ROWS=[];
-  renderExtractedReview();
-  $("extractStatus").textContent="Extracted scan cleared.";
-});
-
-$("createFromScan").addEventListener("click", createPlanogramFromScan);
-$("exportExtractedExcel").addEventListener("click", exportExtractedExcel);
-
 $("saveStore").addEventListener("click", () => {
   try {
     const rec = saveStoreRecord(
       $("storeMgrName").value,
-      $("storeMgrAddress").value,
+      ($("storeMgrAddress").value || $("storeMgrAddressSearch").value),
       $("storeMgrCity").value,
       $("storeMgrId").value
     );
@@ -1679,25 +1598,9 @@ $("clearStoreForm").addEventListener("click", () => {
 $("storeSearch").addEventListener("input", renderStores);
 
 
-$("findStoreGoogle").addEventListener("click", () => {
-  const name = $("storeName").value.trim();
-  const city = $("storeCity").value.trim();
-  if (!name) { alert("Enter the store name first."); return; }
-  window.open(googleStoreSearchUrl(name, city), "_blank");
-});
-
-$("findStoreMgrGoogle").addEventListener("click", () => {
-  const name = $("storeMgrName").value.trim();
-  const city = $("storeMgrCity").value.trim();
-  if (!name) { alert("Enter the store name first."); return; }
-  window.open(googleStoreSearchUrl(name, city), "_blank");
-});
-
 $("openCurrentMap").addEventListener("click", () => {
-  const address = $("storeAddress").value.trim();
-  const city = $("storeCity").value.trim();
-  if (!address) { alert("Enter a store address first."); return; }
-  window.open(mapsUrl(address,city), "_blank");
+  const q = $("storeAddressSearch").value.trim() || ($("storeAddress").value || $("storeAddressSearch").value).trim();
+  openAddressInGoogleMaps(q);
 });
 
 $("scanImage").addEventListener("change", e => {
@@ -1925,6 +1828,8 @@ $("allMissing").addEventListener("click", () => setAllPlanogramStatus("Missing")
 $("allNotComplete").addEventListener("click", () => setAllPlanogramStatus("Not Complete"));
 
 $("generatePlanoPng").addEventListener("click", generatePlanoPNG);
+$("generatePlanoPdf").addEventListener("click", () => generateOnePagePDF(true));
+$("sharePlanoPdf").addEventListener("click", shareOnePagePDF);
 $("sharePlanoPng").addEventListener("click", sharePlanoPNG);
 
 $("search").addEventListener("input", renderReset);
@@ -2108,3 +2013,7 @@ try {
 } catch (_) {}
 renderReset();
 renderDatabase();
+
+
+bindAddressAutocomplete("storeAddressSearch","addressSuggestions","storeAddress","storeCity");
+bindAddressAutocomplete("storeMgrAddressSearch","storeMgrSuggestions","storeMgrAddress","storeMgrCity");

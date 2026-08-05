@@ -50,10 +50,13 @@
 <div class="dbname">Add / Update Store</div>
 <label class="fieldlabel">Store Name</label>
 <input id="storeMgrName" placeholder="e.g. Loblaws Clareview">
-<label class="fieldlabel">Street Address</label>
-<input id="storeMgrAddress" placeholder="e.g. 137 Ave NW">
-<label class="fieldlabel">City</label>
-<input id="storeMgrCity" placeholder="e.g. Edmonton, AB">
+<label class="fieldlabel">Address Search</label>
+<div class="address-wrap">
+<input id="storeMgrAddressSearch" autocomplete="off" placeholder="Start typing the store address…">
+<div id="storeMgrSuggestions" class="address-suggestions"></div>
+</div>
+<input id="storeMgrAddress" type="hidden">
+<input id="storeMgrCity" type="hidden">
 <label class="fieldlabel">Store / Location ID</label>
 <input id="storeMgrId" placeholder="Optional">
 <div class="savegrid" style="margin-top:8px">
@@ -88,32 +91,6 @@ Take a photo or choose an image. It will be retained with this saved store + pla
 <div id="scanStatus" class="small" style="margin-top:8px"></div>
 </div>
 
-<div class="card">
-<div class="dbname">Extract Scan into Planogram</div>
-<div class="small" style="margin:6px 0 10px">
-OCR-assisted extraction. For best results, take the photo straight-on and fill the frame with the planogram.
-</div>
-<div class="filters">
-<div>
-<label class="fieldlabel">Number of Columns</label>
-<input id="scanColumns" type="number" min="1" max="30" value="8">
-</div>
-<div>
-<label class="fieldlabel">Rows per Column</label>
-<input id="scanRows" type="number" min="1" max="40" value="12">
-</div>
-</div>
-<div class="savegrid" style="margin-top:10px">
-<button id="extractScan" class="primary">Extract Scan</button>
-<button id="clearExtracted">Clear Extracted</button>
-</div>
-<div id="extractStatus" class="notice" style="margin-top:10px">
-Photo extraction is OCR-assisted. Review the result before saving the planogram.
-</div>
-</div>
-
-<div class="card" id="extractedReviewCard" style="display:none">
-<div class="dbname">Review Extracted Positions</div>
 <div class="small" style="margin:6px 0 10px">
 Edit any OCR mistakes, then create the planogram.
 </div>
@@ -129,19 +106,16 @@ Edit any OCR mistakes, then create the planogram.
 <div class="small" style="margin:6px 0">After importing Excel, name this reset so it stays in your Saved Plans.</div>
 <label class="fieldlabel">Store Name</label>
 <input id="storeName" placeholder="e.g. Loblaws Clareview">
-<label class="fieldlabel">Street Address</label>
-<input id="storeAddress" placeholder="e.g. 137 Ave NW">
-<label class="fieldlabel">City</label>
-<input id="storeCity" placeholder="e.g. Edmonton, AB">
+<label class="fieldlabel">Address Search</label>
+<div class="address-wrap">
+<input id="storeAddressSearch" autocomplete="off" placeholder="Start typing the store address…">
+<div id="addressSuggestions" class="address-suggestions"></div>
+</div>
+<input id="storeAddress" type="hidden">
+<input id="storeCity" type="hidden">
 <label class="fieldlabel">Store / Location ID</label>
 <input id="storeId" placeholder="Optional">
-<div class="savegrid" style="margin-top:8px">
-<button id="findStoreGoogle" class="primary">Find Store on Google</button>
-<button id="openCurrentMap">Open Saved Address</button>
-</div>
-<div class="small" style="margin-top:6px">
-Google search uses Store Name + City. Choose the correct result, then copy the address back here if needed.
-</div>
+<button id="openCurrentMap" class="primary" style="width:100%;margin-top:8px">Open in Google Maps</button>
 <label class="fieldlabel">Planogram Name</label>
 <input id="planogramName" placeholder="e.g. 4x4 End Cap">
 <button id="saveAsPlanogram" class="primary" style="width:100%;margin-top:8px">Save Planogram</button>
@@ -246,15 +220,18 @@ Google search uses Store Name + City. Choose the correct result, then copy the a
 <div class="card">
 <div class="dbname">Live Planogram View</div>
 <div class="small" style="margin:6px 0 10px">
-Green = Complete • Yellow = Missing • Red = Not Complete
+Built directly from the imported Excel Column + Row positions. Green = Complete • Yellow = Missing • Red = Not Complete.
 </div>
 <div id="visualPlanogram" class="visual-planogram"></div>
 
 <div class="png-actions">
 <button id="generatePlanoPng" class="primary">Generate PNG</button>
 <button id="sharePlanoPng">Share PNG</button>
+<button id="generatePlanoPdf" class="primary">Generate One-Page PDF</button>
+<button id="sharePlanoPdf">Share PDF</button>
 </div>
 <div id="planoPngStatus" class="small" style="margin-top:8px"></div>
+<div id="planoPdfStatus" class="small" style="margin-top:4px"></div>
 <img id="planoPngPreview" class="plano-png-preview" style="display:none" alt="Plano visual export">
 </div>
 
@@ -292,7 +269,6 @@ Creates a PDF showing every column, card, and saved status.
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
