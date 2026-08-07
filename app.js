@@ -17,6 +17,7 @@ const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 let PDF_EXTRACTED_ROWS = [];
 let GENERATED_PDF_XLSX = null;
 let GENERATED_PDF_XLSX_NAME = "";
+let PDF_FIXTURE_META = null;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({
   "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
@@ -188,6 +189,92 @@ function parsePdfTextToPlanogram(lines) {
   return out.sort((a,b)=>columnNumber(a.column)-columnNumber(b.column)||rowNumber(a.row)-rowNumber(b.row));
 }
 
+
+function cleanFixtureToken(v="") {
+  return String(v || "").replace(/\s+/g," ").trim();
+}
+
+function normalizeFixtureGroupName(name="") {
+  const raw = cleanFixtureToken(name);
+  if (!raw) return "";
+  // Keep the source fixture identifier recognizable while making underscores readable.
+  return raw.replace(/_/g," ").replace(/\s+/g," ").trim();
+}
+
+function extractFixtureMetaFromPdfLines(lines=[], sourceFile="") {
+  const joined = lines.join("\n");
+  const findValue = (label) => {
+    const re = new RegExp(label + "\\s*[:\\-]\\s*([^\\n]+)", "i");
+    const m = joined.match(re);
+    return m ? cleanFixtureToken(m[1]) : "";
+  };
+
+  let fixtureName = findValue("Fixture\\s*Name");
+  let fixtureDescription = findValue("Fixture\\s*Description");
+
+  // Some planograms flatten label/value into one line. Try line-level fallbacks.
+  if (!fixtureName) {
+    const line = lines.find(x => /fixture\s*name/i.test(x));
+    if (line) fixtureName = cleanFixtureToken(line.replace(/^.*?fixture\s*name\s*[:\-]?\s*/i,""));
+  }
+  if (!fixtureDescription) {
+    const line = lines.find(x => /fixture\s*description/i.test(x));
+    if (line) fixtureDescription = cleanFixtureToken(line.replace(/^.*?fixture\s*description\s*[:\-]?\s*/i,""));
+  }
+
+  const combined = `${fixtureName} ${fixtureDescription} ${sourceFile}`;
+  const inferred = inferFixtureMeta(combined, sourceFile);
+  const group = normalizeFixtureGroupName(fixtureName || fixtureDescription || sourceFile.replace(/\.[^.]+$/,""));
+
+  return {
+    fixtureName,
+    fixtureDescription,
+    group: group || "Fixture",
+    type: inferred.type,
+    side: inferred.side,
+    source: "pdf"
+  };
+}
+
+function nextSpinnerSide(group, store="") {
+  const wantedGroup = cleanFixtureToken(group).toLowerCase();
+  const wantedStore = cleanFixtureToken(store).toLowerCase();
+  const used = new Set();
+  try {
+    savedPlansIndex().forEach(p => {
+      if (wantedStore && cleanFixtureToken(p.store).toLowerCase() !== wantedStore) return;
+      if (wantedGroup && cleanFixtureToken(p.fixtureGroup || p.name).toLowerCase() !== wantedGroup) return;
+      if (p.fixtureType === "Spinner" && p.fixtureSide) used.add(p.fixtureSide);
+    });
+  } catch (_) {}
+  return ["Side A","Side B","Side C","Side D"].find(x => !used.has(x)) || "Side A";
+}
+
+function applyDetectedFixtureMeta(meta, {force=false}={}) {
+  if (!meta) return;
+  const store = ($("storeName")?.value || currentStore || "").trim();
+  let type = meta.type || "Other";
+  let side = meta.side || "Front";
+  const group = meta.group || meta.fixtureName || "Fixture";
+
+  if (type === "Spinner" && (!side || side === "Front" || side === "Auto")) {
+    side = nextSpinnerSide(group, store);
+  }
+
+  currentFixtureGroup = group;
+  currentFixtureType = type;
+  currentFixtureSide = side;
+
+  if ($("fixtureGroup") && (force || !$('fixtureGroup').value.trim())) $("fixtureGroup").value = group;
+  if ($("fixtureType") && (force || $("fixtureType").value === "Auto")) $("fixtureType").value = type;
+  if ($("fixtureSide") && (force || $("fixtureSide").value === "Auto")) $("fixtureSide").value = side;
+
+  if ($("planogramName") && !$("planogramName").value.trim() && meta.fixtureName) {
+    $("planogramName").value = meta.fixtureName;
+  }
+  updateFixtureHint();
+}
+
 async function extractPdfFile(file) {
   if (typeof pdfjsLib === "undefined") throw new Error("PDF reader did not load.");
   pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -209,6 +296,12 @@ async function extractPdfFile(file) {
 
   if (totalTextItems < 5 || allLines.join(" ").trim().length < 20) {
     throw new Error("This PDF appears to be image-only/scanned. Use the Excel import for this file.");
+  }
+
+  PDF_FIXTURE_META = extractFixtureMetaFromPdfLines(allLines, file.name || "");
+  applyDetectedFixtureMeta(PDF_FIXTURE_META, {force:true});
+  if ($("planogramName") && !$("planogramName").value.trim() && PDF_FIXTURE_META.fixtureName) {
+    $("planogramName").value = PDF_FIXTURE_META.fixtureName;
   }
 
   const parsed = parsePdfTextToPlanogram(allLines);
@@ -255,6 +348,7 @@ function standardizedPdfRows() {
   const address = ($("storeAddress").value || $("storeAddressSearch")?.value || currentStoreAddress || "").trim();
   const city = ($("storeCity")?.value || currentStoreCity || "").trim();
   const planName = ($("planogramName")?.value || "PDF Planogram").trim();
+  const fm = fixtureMetaFromForm();
 
   return PDF_EXTRACTED_ROWS.map(r => ({
     "Store Name": store,
@@ -262,6 +356,11 @@ function standardizedPdfRows() {
     "Address": address,
     "City": city,
     "Planogram Name": planName,
+    "Fixture Group": fm.group,
+    "Fixture Type": fm.type,
+    "Fixture Side": fm.side,
+    "Fixture Name": PDF_FIXTURE_META?.fixtureName || planName,
+    "Fixture Description": PDF_FIXTURE_META?.fixtureDescription || "",
     "Card Name": r.card || "",
     "Card Value": r.denomination || "",
     "Category": r.category || "",
@@ -282,7 +381,7 @@ function buildGeneratedExcelFromPdf() {
 
   const ws = XLSX.utils.json_to_sheet(rows, {
     header: [
-      "Store Name","Store ID","Address","City","Planogram Name","Card Name",
+      "Store Name","Store ID","Address","City","Planogram Name","Fixture Group","Fixture Type","Fixture Side","Fixture Name","Fixture Description","Card Name",
       "Card Value","Category","Column","Row","Position","Confidence","Notes"
     ]
   });
@@ -292,6 +391,11 @@ function buildGeneratedExcelFromPdf() {
   // Also include a clean reset database sheet so this file can be re-uploaded later.
   const dbRows = rows.map(r => ({
     "Planogram": r["Planogram Name"],
+    "Fixture Group": r["Fixture Group"],
+    "Fixture Type": r["Fixture Type"],
+    "Fixture Side": r["Fixture Side"],
+    "Fixture Name": r["Fixture Name"],
+    "Fixture Description": r["Fixture Description"],
     "Card Name": r["Card Name"],
     "Card Value": r["Card Value"],
     "Category": r["Category"],
@@ -391,7 +495,16 @@ function parseWorkbook(arrayBuffer) {
     column: firstIndex(headers, ["column","col"]),
     row: firstIndex(headers, ["row"]),
     position: firstIndex(headers, ["position"]),
-    planogram: firstIndex(headers, ["planogram"]),
+    planogram: firstIndex(headers, ["planogram","planogramname"]),
+    fixtureGroup: firstIndex(headers, ["fixturegroup"]),
+    fixtureType: firstIndex(headers, ["fixturetype"]),
+    fixtureSide: firstIndex(headers, ["fixtureside","face","side"]),
+    fixtureName: firstIndex(headers, ["fixturename"]),
+    fixtureDescription: firstIndex(headers, ["fixturedescription"]),
+    storeName: firstIndex(headers, ["storename","store"]),
+    storeId: firstIndex(headers, ["storeid","storenumber"]),
+    address: firstIndex(headers, ["address","storeaddress"]),
+    city: firstIndex(headers, ["city"]),
     notes: firstIndex(headers, ["notes"]),
     confidence: firstIndex(headers, ["confidence"])
   };
@@ -413,6 +526,15 @@ function parseWorkbook(arrayBuffer) {
     out.push({
       id: `${n}|${card}|${position}`,
       planogram: idx.planogram >= 0 ? String(r[idx.planogram] ?? "").trim() : sheetName,
+      fixtureGroup: idx.fixtureGroup >= 0 ? String(r[idx.fixtureGroup] ?? "").trim() : "",
+      fixtureType: idx.fixtureType >= 0 ? String(r[idx.fixtureType] ?? "").trim() : "",
+      fixtureSide: idx.fixtureSide >= 0 ? String(r[idx.fixtureSide] ?? "").trim() : "",
+      fixtureName: idx.fixtureName >= 0 ? String(r[idx.fixtureName] ?? "").trim() : "",
+      fixtureDescription: idx.fixtureDescription >= 0 ? String(r[idx.fixtureDescription] ?? "").trim() : "",
+      storeName: idx.storeName >= 0 ? String(r[idx.storeName] ?? "").trim() : "",
+      storeId: idx.storeId >= 0 ? String(r[idx.storeId] ?? "").trim() : "",
+      address: idx.address >= 0 ? String(r[idx.address] ?? "").trim() : "",
+      city: idx.city >= 0 ? String(r[idx.city] ?? "").trim() : "",
       card,
       denomination: idx.denom >= 0 ? String(r[idx.denom] ?? "").trim() : "",
       category: idx.category >= 0 ? String(r[idx.category] ?? "").trim() : "",
@@ -425,7 +547,18 @@ function parseWorkbook(arrayBuffer) {
   });
 
   if (!out.length) throw new Error("No planogram rows were found.");
-  return { rows: out, sheetName };
+  const first = out[0];
+  const importedText = [first.fixtureName, first.fixtureDescription, first.fixtureGroup, first.planogram, sheetName].filter(Boolean).join(" ");
+  const inferred = inferFixtureMeta(importedText, "");
+  const meta = {
+    group: first.fixtureGroup || normalizeFixtureGroupName(first.fixtureName || first.planogram || sheetName),
+    type: first.fixtureType || inferred.type,
+    side: first.fixtureSide || inferred.side,
+    fixtureName: first.fixtureName || first.planogram || "",
+    fixtureDescription: first.fixtureDescription || "",
+    storeName: first.storeName || "", storeId: first.storeId || "", address: first.address || "", city: first.city || ""
+  };
+  return { rows: out, sheetName, meta };
 }
 
 function statusKey(r) {
@@ -1085,21 +1218,29 @@ function renderStores() {
 
 
 function inferFixtureMeta(name="", file="") {
-  const text = `${name} ${file}`.toLowerCase();
+  const text = `${name} ${file}`.toLowerCase().replace(/_/g," ");
   let type = "Other";
   let side = "Front";
-  if (/spinner|carousel|rotating/.test(text)) type = "Spinner";
-  else if (/end\s*cap|endcap/.test(text)) type = "End Cap";
-  else if (/wall|main\s*fixture|main\s*face/.test(text)) type = "Main Fixture";
+
+  // Blackhawk/retail files named SINGLE_END_CAP_n are commonly one face of a
+  // multi-sided spinner/end-cap fixture. Treat them as spinner faces so
+  // additional planograms can roll up into one fixture report automatically.
+  if (/\bsingle\s*end\s*cap\s*\d+\b/.test(text) || /\bspinner\b|\bcarousel\b|\brotating\b/.test(text)) {
+    type = "Spinner";
+  } else if (/\bend\s*cap\b|\bendcap\b/.test(text)) {
+    type = "End Cap";
+  } else if (/\bwall\b|main\s*fixture|main\s*face/.test(text)) {
+    type = "Main Fixture";
+  }
 
   if (/left\s*(end\s*cap|side)?|\blhs\b/.test(text)) side = "Left End Cap";
   else if (/right\s*(end\s*cap|side)?|\brhs\b/.test(text)) side = "Right End Cap";
-  else if (/\bback\b|rear/.test(text)) side = "Back";
+  else if (/\bback\b|\brear\b/.test(text)) side = "Back";
   else if (/side\s*a|panel\s*a|face\s*a/.test(text)) side = "Side A";
   else if (/side\s*b|panel\s*b|face\s*b/.test(text)) side = "Side B";
   else if (/side\s*c|panel\s*c|face\s*c/.test(text)) side = "Side C";
   else if (/side\s*d|panel\s*d|face\s*d/.test(text)) side = "Side D";
-  else if (/front|main\s*face/.test(text)) side = "Front";
+  else if (/\bfront\b|main\s*face/.test(text)) side = "Front";
 
   if (type === "Spinner" && side === "Front") side = "Side A";
   return {type, side};
@@ -1121,7 +1262,8 @@ function fixtureMetaFromForm() {
 function updateFixtureHint() {
   if (!$("fixtureHint")) return;
   const m = fixtureMetaFromForm();
-  $("fixtureHint").textContent = `Planno will categorize this as: ${m.type} • ${m.side}. Use the same Fixture / Spinner Group for all sides that belong together.`;
+  const autoNote = m.type === "Spinner" ? " Spinner faces are automatically assigned Side A–D as more planograms are added to this store/group." : "";
+  $("fixtureHint").textContent = `Auto-detected: ${m.type} • ${m.side} • Group: ${m.group}.${autoNote}`;
 }
 
 function fixtureStatusForRecord(record, row) {
@@ -2549,6 +2691,7 @@ $("clearPdfData").addEventListener("click", () => {
   PDF_EXTRACTED_ROWS = [];
   GENERATED_PDF_XLSX = null;
   GENERATED_PDF_XLSX_NAME = "";
+  PDF_FIXTURE_META = null;
   $("pdfFile").value = "";
   renderPdfReview();
   $("pdfImportStatus").textContent = "PDF data cleared.";
@@ -2567,6 +2710,21 @@ $("xlsxFile").addEventListener("change", async e => {
     const parsed = parseWorkbook(buf);
     DATA = parsed.rows;
     fileName = f.name;
+
+    if (parsed.meta) {
+      if ($("planogramName") && (!$("planogramName").value.trim() || $("planogramName").value.trim() === f.name.replace(/\.[^.]+$/, ""))) {
+        $("planogramName").value = parsed.meta.fixtureName || parsed.rows[0]?.planogram || f.name.replace(/\.[^.]+$/, "");
+      }
+      if (parsed.meta.storeName && $("storeName") && !$("storeName").value.trim()) $("storeName").value = parsed.meta.storeName;
+      if (parsed.meta.storeId && $("storeId") && !$("storeId").value.trim()) $("storeId").value = parsed.meta.storeId;
+      if (parsed.meta.address && $("storeAddressSearch") && !$("storeAddressSearch").value.trim()) $("storeAddressSearch").value = parsed.meta.address;
+      if (parsed.meta.address && $("storeAddress") && !$("storeAddress").value.trim()) $("storeAddress").value = parsed.meta.address;
+      if (parsed.meta.city && $("storeCity") && !$("storeCity").value.trim()) $("storeCity").value = parsed.meta.city;
+      applyDetectedFixtureMeta(parsed.meta, {force:true});
+    } else {
+      applyDetectedFixtureMeta({group: normalizeFixtureGroupName($("planogramName")?.value || f.name.replace(/\.[^.]+$/,"")), ...inferFixtureMeta($("planogramName")?.value || "", f.name)}, {force:true});
+    }
+
     saveImported();
     saveAll(false);
     afterLoad();

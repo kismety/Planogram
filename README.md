@@ -43,3 +43,12 @@ Planno can now save a full JSON backup to Google Drive and restore the latest Dr
 Because the app runs on GitHub Pages, create a Google Cloud **OAuth 2.0 Web Client ID** with the deployed Planno site added as an authorized JavaScript origin. Paste that Client ID into the Google Drive Sync card in Planno.
 
 The browser version uses the `drive.file` permission and a short-lived sign-in token. Local saving continues to work even when Google Drive is not connected.
+
+
+## Automatic spinner / end-cap detection
+- PDF imports now read Fixture Name and Fixture Description when present.
+- Names such as `SINGLE_END_CAP_7` are automatically categorized as **Spinner** / multi-face end-cap fixtures.
+- Spinner planograms are automatically assigned the next available **Side A–D** for the same store + fixture group.
+- Generated Excel now includes Fixture Group, Fixture Type, Fixture Side, Fixture Name, and Fixture Description columns.
+- Re-uploading that Excel restores the spinner/end-cap classification automatically.
+- Explicit Left/Right/Back/Side A–D wording overrides generic side detection.
