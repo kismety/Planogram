@@ -223,3 +223,17 @@ nav{grid-template-columns:repeat(6,1fr)}
 
 .attachgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 @media(max-width:520px){.attachgrid{grid-template-columns:1fr}}
+
+
+.fixture-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fixture-grid select{width:100%}
+.fixture-pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#f0f0f2;border:1px solid #ddd;font-size:11px;font-weight:800;margin-right:5px;margin-top:5px}
+.fixture-plan{border:1px solid #e2e2e2;border-radius:10px;padding:10px;margin:7px 0;background:#fff}
+.fixture-plan-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.fixture-plan-title{font-weight:800}
+.fixture-plan-meta{font-size:12px;color:#666;margin-top:3px}
+.fixture-total{font-size:13px;line-height:1.5;padding:10px;background:#f7f7f8;border-radius:10px;border:1px solid #e0e0e0;margin-bottom:8px}
+@media(max-width:560px){.fixture-grid{grid-template-columns:1fr}}
+
+.fixture-config{margin-top:10px;padding:10px;border:1px solid #e2e2e2;border-radius:12px;background:#fafafa}
+#googleDriveCard input{width:100%;box-sizing:border-box}

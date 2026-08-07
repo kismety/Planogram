@@ -129,25 +129,6 @@ Attach a reference image to this saved planogram.
 <div id="scanStatus" class="small" style="margin-top:8px">No attachment.</div>
 </div>
 
-<div class="card">
-<div class="dbname">Scan / Attach Plannogram</div>
-<div class="small" style="margin:6px 0 8px">
-Take a photo or choose an image. It will be retained with this saved store + planogram.
-</div>
-<input id="scanImage" type="file" accept="image/*" capture="environment">
-<img id="scanPreview" class="scanpreview" style="display:none">
-<div id="scanStatus" class="small" style="margin-top:8px"></div>
-</div>
-
-<div class="small" style="margin:6px 0 10px">
-Edit any OCR mistakes, then create the planogram.
-</div>
-<div id="extractedReviewList"></div>
-<div class="savegrid" style="margin-top:10px">
-<button id="createFromScan" class="primary">Create Plannogram from Scan</button>
-<button id="exportExtractedExcel">Export Extracted Excel</button>
-</div>
-</div>
 
 <div class="card">
 <div class="dbname">Save as a Plannogram</div>
@@ -172,9 +153,37 @@ Edit any OCR mistakes, then create the planogram.
 
 <button id="openCurrentMap" class="primary" style="width:100%;margin-top:8px">Open in Google Maps</button>
 <label class="fieldlabel">Plannogram Name</label>
-<input id="planogramName" placeholder="e.g. 4x4 End Cap">
+<input id="planogramName" placeholder="e.g. 4x4 End Cap - Left">
+
+<div class="fixture-config">
+<div class="dbname" style="margin-top:12px">Fixture Structure</div>
+<div class="small" style="margin:5px 0 8px">Group multiple planograms that belong to the same physical end cap or spinner. Each face keeps its own C/R positions.</div>
+<label class="fieldlabel">Fixture / Spinner Group</label>
+<input id="fixtureGroup" placeholder="e.g. Gift Card Spinner 1 or End Cap 7">
+<div class="savegrid" style="margin-top:8px">
+<div><label class="fieldlabel">Fixture Type</label><select id="fixtureType" style="width:100%"><option>Auto</option><option>End Cap</option><option>Spinner</option><option>Main Fixture</option><option>Other</option></select></div>
+<div><label class="fieldlabel">Face / Side</label><select id="fixtureSide" style="width:100%"><option>Auto</option><option>Front</option><option>Left End Cap</option><option>Right End Cap</option><option>Back</option><option>Side A</option><option>Side B</option><option>Side C</option><option>Side D</option></select></div>
+</div>
+<div id="fixtureHint" class="notice" style="margin-top:8px"></div>
+</div>
 <button id="saveAsPlannogram" class="primary" style="width:100%;margin-top:8px">Save Plannogram</button>
 </div>
+<div class="card" id="googleDriveCard">
+<div class="dbname">Google Drive Sync (Optional)</div>
+<div class="small" style="margin:6px 0 10px">Keep the full Planno store/fixture database in Google Drive so the iPhone is not the only copy. A Google OAuth Web Client ID is required once for this GitHub Pages app.</div>
+<label class="fieldlabel">Google OAuth Client ID</label>
+<input id="googleClientId" placeholder="xxxxxxxx.apps.googleusercontent.com" autocomplete="off">
+<div class="savegrid" style="margin-top:8px">
+<button id="connectGoogleDrive" class="primary">Connect Google Drive</button>
+<button id="disconnectGoogleDrive">Disconnect</button>
+</div>
+<div class="savegrid" style="margin-top:8px">
+<button id="syncAllToDrive" class="primary">Save ALL Planno Data to Drive</button>
+<button id="restoreAllFromDrive">Restore Latest from Drive</button>
+</div>
+<div id="driveStatus" class="small" style="margin-top:8px">Not connected. Local device saving still works.</div>
+</div>
+
 <div class="card" id="allDataBackupCard">
 <div class="dbname">Planno Backup</div>
 <div class="small" style="margin:6px 0 10px">
@@ -304,6 +313,18 @@ Built directly from the imported Excel Column + Row positions. Green = Complete 
 </div>
 
 <div class="card">
+<div class="dbname">Fixture / Spinner Overview</div>
+<div class="small" style="margin:6px 0 10px">Combines all saved faces that use the same Store + Fixture / Spinner Group.</div>
+<div id="fixtureOverview"></div>
+<div class="savegrid" style="margin-top:10px">
+<button id="generateFixturePdf" class="primary">Entire Fixture PDF</button>
+<button id="shareFixturePdf">Share Fixture PDF</button>
+</div>
+<button id="saveFixturePdfDrive" style="width:100%;margin-top:8px">Save Fixture PDF to Google Drive</button>
+<div id="fixturePdfStatus" class="small" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
 <div class="dbname">Generate Final Plannogram</div>
 <div class="small" style="margin:6px 0 10px">
 Creates a PDF showing every column, card, and saved status.
@@ -313,6 +334,7 @@ Creates a PDF showing every column, card, and saved status.
 <button id="shareFinalPdf">Share Final PDF</button>
 </div>
 <div class="savegrid" style="margin-top:8px"><button id="openFinalPdf">Open PDF</button><button id="downloadFinalPdf">Download PDF</button></div>
+<button id="saveFinalPdfDrive" style="width:100%;margin-top:8px">Save Final PDF to Google Drive</button>
 <div id="finalPdfStatus" class="small" style="margin-top:8px"></div>
 </div>
 
@@ -338,6 +360,7 @@ Creates a PDF showing every column, card, and saved status.
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="app.js"></script>
 </body>
 </html>

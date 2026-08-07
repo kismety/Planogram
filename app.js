@@ -8,6 +8,12 @@ let currentStoreCity = "";
 let currentStoreId = "";
 let currentScanImage = "";
 let currentScanFileName = "";
+let currentFixtureGroup = "";
+let currentFixtureType = "Auto";
+let currentFixtureSide = "Auto";
+let GOOGLE_DRIVE_TOKEN = "";
+let GOOGLE_TOKEN_CLIENT = null;
+const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 let PDF_EXTRACTED_ROWS = [];
 let GENERATED_PDF_XLSX = null;
 let GENERATED_PDF_XLSX_NAME = "";
@@ -513,6 +519,7 @@ function collectAllPlannoData() {
     exportedAt:new Date().toISOString(),
     active:{
       fileName,currentCol,currentStore,currentStoreAddress,currentStoreCity,currentStoreId,
+      currentFixtureGroup,currentFixtureType,currentFixtureSide,
       currentScanImage,currentScanFileName,
       data:Array.isArray(DATA)?DATA:[]
     },
@@ -556,6 +563,9 @@ async function importAllJson(file) {
   currentStoreAddress=a.currentStoreAddress||"";
   currentStoreCity=a.currentStoreCity||"";
   currentStoreId=a.currentStoreId||"";
+  currentFixtureGroup=a.currentFixtureGroup||"";
+  currentFixtureType=a.currentFixtureType||"Auto";
+  currentFixtureSide=a.currentFixtureSide||"Auto";
   currentScanImage=a.currentScanImage||"";
   currentScanFileName=a.currentScanFileName||"";
 
@@ -564,6 +574,10 @@ async function importAllJson(file) {
   if ($("storeAddressSearch")) $("storeAddressSearch").value=currentStoreAddress;
   if ($("storeCity")) $("storeCity").value=currentStoreCity;
   if ($("storeId")) $("storeId").value=currentStoreId;
+  if ($("fixtureGroup")) $("fixtureGroup").value=currentFixtureGroup;
+  if ($("fixtureType")) $("fixtureType").value=currentFixtureType;
+  if ($("fixtureSide")) $("fixtureSide").value=currentFixtureSide;
+  updateFixtureHint();
 
   saveImported();
   afterLoad();
@@ -573,6 +587,174 @@ async function importAllJson(file) {
   renderDatabase();
   renderReset();
   renderFinalReview();
+}
+
+
+function driveStatus(message, ok=false) {
+  if (!$('driveStatus')) return;
+  $('driveStatus').textContent = message;
+  $('driveStatus').classList.toggle('saved', !!ok);
+}
+
+function googleClientId() {
+  return ($('googleClientId')?.value || localStorage.getItem('planno_google_client_id') || '').trim();
+}
+
+function initGoogleDriveClient() {
+  const clientId = googleClientId();
+  if (!clientId) throw new Error('Enter your Google OAuth Client ID first.');
+  if (!(window.google && google.accounts && google.accounts.oauth2)) {
+    throw new Error('Google sign-in is still loading. Try again in a few seconds.');
+  }
+  localStorage.setItem('planno_google_client_id', clientId);
+  GOOGLE_TOKEN_CLIENT = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: GOOGLE_DRIVE_SCOPE,
+    callback: () => {}
+  });
+  return GOOGLE_TOKEN_CLIENT;
+}
+
+function ensureDriveToken(prompt='') {
+  return new Promise((resolve,reject) => {
+    try {
+      const client = GOOGLE_TOKEN_CLIENT || initGoogleDriveClient();
+      client.callback = resp => {
+        if (resp && resp.access_token) {
+          GOOGLE_DRIVE_TOKEN = resp.access_token;
+          driveStatus('✓ Connected to Google Drive for this session.', true);
+          resolve(resp.access_token);
+        } else reject(new Error(resp?.error_description || resp?.error || 'Google Drive authorization failed.'));
+      };
+      client.requestAccessToken({prompt});
+    } catch(e) { reject(e); }
+  });
+}
+
+async function driveFetch(url, options={}) {
+  if (!GOOGLE_DRIVE_TOKEN) await ensureDriveToken('');
+  const headers = new Headers(options.headers || {});
+  headers.set('Authorization', 'Bearer ' + GOOGLE_DRIVE_TOKEN);
+  let resp = await fetch(url, {...options, headers});
+  if (resp.status === 401) {
+    GOOGLE_DRIVE_TOKEN = '';
+    await ensureDriveToken('');
+    headers.set('Authorization', 'Bearer ' + GOOGLE_DRIVE_TOKEN);
+    resp = await fetch(url, {...options, headers});
+  }
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Google Drive error ${resp.status}: ${text.slice(0,240)}`);
+  }
+  return resp;
+}
+
+async function findDriveFolder(name, parentId='root') {
+  const q = [`name='${String(name).replace(/'/g,"\\'")}'`, "mimeType='application/vnd.google-apps.folder'", 'trashed=false'];
+  if (parentId) q.push(`'${parentId}' in parents`);
+  const url = 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name)&pageSize=50&q=' + encodeURIComponent(q.join(' and '));
+  const resp = await driveFetch(url);
+  const body = await resp.json();
+  return body.files?.[0] || null;
+}
+
+async function ensureDriveFolder(name, parentId='root') {
+  const found = await findDriveFolder(name,parentId);
+  if (found) return found.id;
+  const resp = await driveFetch('https://www.googleapis.com/drive/v3/files?fields=id,name', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, mimeType:'application/vnd.google-apps.folder', parents:[parentId]})
+  });
+  return (await resp.json()).id;
+}
+
+async function plannoDriveFolders(storeName='') {
+  const root = await ensureDriveFolder('Planno','root');
+  if (!storeName) return {root};
+  const stores = await ensureDriveFolder('Stores',root);
+  const safeStore = String(storeName || 'Store').trim().slice(0,100) || 'Store';
+  const store = await ensureDriveFolder(safeStore,stores);
+  const reports = await ensureDriveFolder('Reports',store);
+  return {root,stores,store,reports};
+}
+
+async function uploadBlobToDrive(blob, fileName, parentId, mimeType='application/octet-stream', appProperties={}) {
+  const boundary = '-------planno' + Math.random().toString(16).slice(2);
+  const metadata = {name:fileName, parents:[parentId], appProperties};
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+    JSON.stringify(metadata),
+    `\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
+    blob,
+    `\r\n--${boundary}--`
+  ], {type:`multipart/related; boundary=${boundary}`});
+  const resp = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
+    method:'POST', headers:{'Content-Type':`multipart/related; boundary=${boundary}`}, body
+  });
+  return await resp.json();
+}
+
+async function listDriveBackups() {
+  const {root} = await plannoDriveFolders();
+  const q = [`'${root}' in parents`, "name contains 'Planno_ALL_DATA_'", 'trashed=false'];
+  const url = 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&pageSize=20&q=' + encodeURIComponent(q.join(' and '));
+  const resp = await driveFetch(url);
+  return (await resp.json()).files || [];
+}
+
+async function syncAllPlannoToDrive() {
+  try {
+    driveStatus('Saving Planno data to Google Drive…');
+    saveAll(false);
+    await ensureDriveToken('');
+    const {root} = await plannoDriveFolders();
+    const data = collectAllPlannoData();
+    const name = 'Planno_ALL_DATA_' + new Date().toISOString().replace(/[:.]/g,'-') + '.json';
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    await uploadBlobToDrive(blob,name,root,'application/json',{app:'Planno',kind:'full-backup'});
+    driveStatus('✓ Full Planno backup saved to Google Drive.', true);
+  } catch(e) { driveStatus('Drive save failed: ' + e.message); }
+}
+
+async function restoreLatestPlannoFromDrive() {
+  try {
+    driveStatus('Finding latest Planno backup in Google Drive…');
+    await ensureDriveToken('');
+    const files = await listDriveBackups();
+    if (!files.length) throw new Error('No Planno Drive backup was found for this Google account.');
+    const latest = files[0];
+    const resp = await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(latest.id)}?alt=media`);
+    const text = await resp.text();
+    const f = new File([text], latest.name, {type:'application/json'});
+    await importAllJson(f);
+    driveStatus('✓ Restored ' + latest.name + ' from Google Drive.', true);
+  } catch(e) { driveStatus('Drive restore failed: ' + e.message); }
+}
+
+async function saveFinalPdfToDrive() {
+  try {
+    if ($('finalPdfStatus')) $('finalPdfStatus').textContent='Saving final PDF to Google Drive…';
+    await ensureDriveToken('');
+    const result = LAST_PDF_BLOB ? {blob:LAST_PDF_BLOB,name:LAST_PDF_NAME} : await buildFinalPlannogramPDFBlob();
+    const store = ($('storeName')?.value || currentStore || 'Store').trim();
+    const {reports} = await plannoDriveFolders(store);
+    await uploadBlobToDrive(result.blob,result.name,reports,'application/pdf',{app:'Planno',kind:'final-report'});
+    if ($('finalPdfStatus')) $('finalPdfStatus').textContent='✓ Final PDF saved to Google Drive → Planno / Stores / ' + store + ' / Reports.';
+  } catch(e) { if ($('finalPdfStatus')) $('finalPdfStatus').textContent='Drive save failed: '+e.message; }
+}
+
+async function saveFixturePdfToDrive() {
+  try {
+    if ($('fixturePdfStatus')) $('fixturePdfStatus').textContent='Saving entire fixture PDF to Google Drive…';
+    await ensureDriveToken('');
+    const result = LAST_FIXTURE_PDF_BLOB ? {blob:LAST_FIXTURE_PDF_BLOB,name:LAST_FIXTURE_PDF_NAME} : await buildFixturePDFBlob();
+    const records = getFixtureRecords();
+    const store = records[0]?.store || $('storeName')?.value || currentStore || 'Store';
+    const {reports} = await plannoDriveFolders(store);
+    await uploadBlobToDrive(result.blob,result.name,reports,'application/pdf',{app:'Planno',kind:'fixture-report'});
+    if ($('fixturePdfStatus')) $('fixturePdfStatus').textContent='✓ Entire fixture PDF saved to Google Drive → Planno / Stores / ' + store + ' / Reports.';
+  } catch(e) { if ($('fixturePdfStatus')) $('fixturePdfStatus').textContent='Drive save failed: '+e.message; }
 }
 
 function saveAll(showMessage=true) {
@@ -609,12 +791,17 @@ function makeBackupObject() {
   const statuses = {};
   DATA.forEach(r => { statuses[statusKey(r)] = getStatus(r); });
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     fileName,
     currentStore,
+    currentStoreAddress,
+    currentStoreCity,
+    currentStoreId,
+    currentFixtureGroup,
+    currentFixtureType,
+    currentFixtureSide,
     currentCol,
-    currentStore: store,
     data: DATA,
     statuses
   };
@@ -649,9 +836,23 @@ async function restoreBackupFromFile(file) {
   DATA = backup.data;
   fileName = backup.fileName || "Restored planogram";
   currentStore = backup.currentStore || "";
+  currentStoreAddress = backup.currentStoreAddress || "";
+  currentStoreCity = backup.currentStoreCity || "";
+  currentStoreId = backup.currentStoreId || "";
+  currentFixtureGroup = backup.currentFixtureGroup || "";
+  currentFixtureType = backup.currentFixtureType || "Auto";
+  currentFixtureSide = backup.currentFixtureSide || "Auto";
   currentCol = backup.currentCol || "";
   if ($("storeName")) $("storeName").value = currentStore;
   if ($("storeLookup")) $("storeLookup").value = [currentStore,currentStoreAddress].filter(Boolean).join(" — ");
+  if ($("storeAddress")) $("storeAddress").value = currentStoreAddress;
+  if ($("storeAddressSearch")) $("storeAddressSearch").value = currentStoreAddress;
+  if ($("storeCity")) $("storeCity").value = currentStoreCity;
+  if ($("storeId")) $("storeId").value = currentStoreId;
+  if ($("fixtureGroup")) $("fixtureGroup").value = currentFixtureGroup;
+  if ($("fixtureType")) $("fixtureType").value = currentFixtureType;
+  if ($("fixtureSide")) $("fixtureSide").value = currentFixtureSide;
+  updateFixtureHint();
   localStorage.setItem("planogram_imported_rows", JSON.stringify(DATA));
   localStorage.setItem("planogram_imported_filename", fileName);
   if (backup.statuses && typeof backup.statuses === "object") {
@@ -882,6 +1083,173 @@ function renderStores() {
   document.querySelectorAll("[data-delete-store]").forEach(b => b.onclick = () => deleteStore(b.dataset.deleteStore));
 }
 
+
+function inferFixtureMeta(name="", file="") {
+  const text = `${name} ${file}`.toLowerCase();
+  let type = "Other";
+  let side = "Front";
+  if (/spinner|carousel|rotating/.test(text)) type = "Spinner";
+  else if (/end\s*cap|endcap/.test(text)) type = "End Cap";
+  else if (/wall|main\s*fixture|main\s*face/.test(text)) type = "Main Fixture";
+
+  if (/left\s*(end\s*cap|side)?|\blhs\b/.test(text)) side = "Left End Cap";
+  else if (/right\s*(end\s*cap|side)?|\brhs\b/.test(text)) side = "Right End Cap";
+  else if (/\bback\b|rear/.test(text)) side = "Back";
+  else if (/side\s*a|panel\s*a|face\s*a/.test(text)) side = "Side A";
+  else if (/side\s*b|panel\s*b|face\s*b/.test(text)) side = "Side B";
+  else if (/side\s*c|panel\s*c|face\s*c/.test(text)) side = "Side C";
+  else if (/side\s*d|panel\s*d|face\s*d/.test(text)) side = "Side D";
+  else if (/front|main\s*face/.test(text)) side = "Front";
+
+  if (type === "Spinner" && side === "Front") side = "Side A";
+  return {type, side};
+}
+
+function fixtureMetaFromForm() {
+  const name = $("planogramName")?.value?.trim() || "";
+  const inferred = inferFixtureMeta(name, fileName);
+  const typeValue = $("fixtureType")?.value || "Auto";
+  const sideValue = $("fixtureSide")?.value || "Auto";
+  return {
+    group: $("fixtureGroup")?.value?.trim() || name || "Fixture",
+    type: typeValue === "Auto" ? inferred.type : typeValue,
+    side: sideValue === "Auto" ? inferred.side : sideValue,
+    inferred
+  };
+}
+
+function updateFixtureHint() {
+  if (!$("fixtureHint")) return;
+  const m = fixtureMetaFromForm();
+  $("fixtureHint").textContent = `Planno will categorize this as: ${m.type} • ${m.side}. Use the same Fixture / Spinner Group for all sides that belong together.`;
+}
+
+function fixtureStatusForRecord(record, row) {
+  const key = `pgstatus|${row.planogram || record.fileName || record.name}|${row.position}|${row.card}`;
+  return (record.statuses && record.statuses[key]) || localStorage.getItem(key) || "Not Complete";
+}
+
+function fixtureCountsForRecord(record) {
+  const out = {total:0, complete:0, missing:0, notComplete:0};
+  (record.data || []).forEach(r => {
+    out.total++;
+    const st = fixtureStatusForRecord(record,r);
+    if (st === "Complete") out.complete++;
+    else if (st === "Missing") out.missing++;
+    else out.notComplete++;
+  });
+  return out;
+}
+
+function getFixtureRecords() {
+  const store = ($("storeName")?.value || currentStore || "").trim().toLowerCase();
+  const meta = fixtureMetaFromForm();
+  const group = (meta.group || "").trim().toLowerCase();
+  const records = [];
+  savedPlansIndex().forEach(p => {
+    if (store && (p.store || "").trim().toLowerCase() !== store) return;
+    if (group && (p.fixtureGroup || p.name || "").trim().toLowerCase() !== group) return;
+    try {
+      const raw = localStorage.getItem("saved_planogram|" + p.id);
+      if (raw) records.push(JSON.parse(raw));
+    } catch (_) {}
+  });
+
+  const currentName = ($("planogramName")?.value || "").trim();
+  if (DATA.length && currentName) {
+    const exists = records.some(r => r.name === currentName && (r.store||"").toLowerCase() === store);
+    if (!exists) {
+      records.push({
+        id:"current", name:currentName, store:$("storeName")?.value || currentStore || "",
+        storeAddress:$("storeAddress")?.value || currentStoreAddress || "",
+        storeCity:$("storeCity")?.value || currentStoreCity || "",
+        storeId:$("storeId")?.value || currentStoreId || "",
+        fixtureGroup:meta.group, fixtureType:meta.type, fixtureSide:meta.side,
+        fileName, data:DATA, statuses:collectStatusesForData(DATA)
+      });
+    }
+  }
+  return records.sort((a,b) => String(a.fixtureSide||"").localeCompare(String(b.fixtureSide||"")) || String(a.name||"").localeCompare(String(b.name||"")));
+}
+
+function renderFixtureOverview() {
+  if (!$("fixtureOverview")) return;
+  const records = getFixtureRecords();
+  if (!records.length) {
+    $("fixtureOverview").innerHTML = '<div class="small">Save the planogram with a Fixture / Spinner Group to combine multiple sides.</div>';
+    return;
+  }
+  const totals = records.reduce((a,r)=>{
+    const c=fixtureCountsForRecord(r); a.total+=c.total; a.complete+=c.complete; a.missing+=c.missing; a.notComplete+=c.notComplete; return a;
+  },{total:0,complete:0,missing:0,notComplete:0});
+  const group = records[0].fixtureGroup || records[0].name || "Fixture";
+  const type = records[0].fixtureType || "Fixture";
+  $("fixtureOverview").innerHTML = `
+    <div class="fixture-total"><b>${esc(group)}</b> • ${esc(type)}<br>${totals.total} total • ${totals.complete} complete • ${totals.missing} missing • ${totals.notComplete} not complete</div>
+    ${records.map(r=>{ const c=fixtureCountsForRecord(r); return `<div class="fixture-plan"><div class="fixture-plan-head"><div><div class="fixture-plan-title">${esc(r.fixtureSide || "Front")} — ${esc(r.name || "Planogram")}</div><div class="fixture-plan-meta">${c.total} items • ${c.complete} complete • ${c.missing} missing • ${c.notComplete} not complete</div></div><span class="fixture-pill">${esc(r.fixtureType || "Fixture")}</span></div></div>`; }).join("")}`;
+}
+
+let LAST_FIXTURE_PDF_BLOB = null;
+let LAST_FIXTURE_PDF_NAME = "";
+async function buildFixturePDFBlob() {
+  if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("PDF engine did not load.");
+  const records = getFixtureRecords();
+  if (!records.length) throw new Error("No fixture planograms found. Save the planogram first.");
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+  const pw=doc.internal.pageSize.getWidth(), ph=doc.internal.pageSize.getHeight(), margin=12;
+  const store=records[0].store || "Store";
+  const group=records[0].fixtureGroup || records[0].name || "Fixture";
+  const type=records[0].fixtureType || "Fixture";
+  const totals=records.reduce((a,r)=>{const c=fixtureCountsForRecord(r);a.total+=c.total;a.complete+=c.complete;a.missing+=c.missing;a.notComplete+=c.notComplete;return a;},{total:0,complete:0,missing:0,notComplete:0});
+
+  doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.text(store,margin,16);
+  doc.setFontSize(14); doc.text(`${group} — ${type}`,margin,24);
+  doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.text(`${totals.total} Total | ${totals.complete} Complete | ${totals.missing} Missing | ${totals.notComplete} Not Complete`,margin,31);
+  let y=40;
+  records.forEach(r=>{const c=fixtureCountsForRecord(r); doc.setFont("helvetica","bold");doc.setFontSize(11);doc.text(`${r.fixtureSide||"Front"} — ${r.name||"Planogram"}`,margin,y);y+=5;doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.text(`${c.total} items | ${c.complete} complete | ${c.missing} missing | ${c.notComplete} not complete`,margin,y);y+=7;});
+  y+=3; doc.setFont("helvetica","bold");doc.setFontSize(12);doc.text("Missing / Outstanding",margin,y);y+=7;
+  records.forEach(r=>{
+    const outstanding=(r.data||[]).filter(row=>fixtureStatusForRecord(r,row)!=="Complete");
+    if (!outstanding.length) return;
+    if (y>ph-25){doc.addPage();y=16;}
+    doc.setFont("helvetica","bold");doc.setFontSize(10);doc.text(`${r.fixtureSide||"Front"} — ${r.name||"Planogram"}`,margin,y);y+=5;
+    outstanding.forEach(row=>{
+      if (y>ph-14){doc.addPage();y=16;}
+      const st=fixtureStatusForRecord(r,row);doc.setFont("helvetica","normal");doc.setFontSize(8);
+      const txt=`${st}: ${row.position||row.column||""} — ${row.card||""}${row.denomination?" • "+row.denomination:""}`;
+      const lines=doc.splitTextToSize(txt,pw-margin*2);doc.text(lines,margin,y);y+=4*lines.length+1;
+    }); y+=3;
+  });
+
+  // Entire report: one page/section per saved side with every item.
+  records.forEach(r=>{
+    doc.addPage();
+    const c=fixtureCountsForRecord(r);
+    doc.setFont("helvetica","bold");doc.setFontSize(15);doc.text(`${r.fixtureSide||"Front"} — ${r.name||"Planogram"}`,margin,16);
+    doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.text(`${c.total} items | ${c.complete} complete | ${c.missing} missing | ${c.notComplete} not complete`,margin,22);
+    let yy=30;
+    (r.data||[]).slice().sort((a,b)=>columnNumber(a.column)-columnNumber(b.column)||rowNumber(a.row)-rowNumber(b.row)).forEach(row=>{
+      if(yy>ph-12){doc.addPage();yy=16;}
+      const st=fixtureStatusForRecord(r,row);doc.setFont("helvetica","normal");doc.setFontSize(7.6);
+      const txt=`${row.position||row.column||""} | ${row.card||""}${row.denomination?" | "+row.denomination:""} | ${st}`;
+      const lines=doc.splitTextToSize(txt,pw-margin*2);doc.text(lines,margin,yy);yy+=4*lines.length+1;
+    });
+  });
+  const safe=(`${store}_${group}_FIXTURE_REPORT`).replace(/[^a-z0-9_-]+/gi,"_");
+  LAST_FIXTURE_PDF_BLOB=doc.output("blob"); LAST_FIXTURE_PDF_NAME=safe+".pdf";
+  return {blob:LAST_FIXTURE_PDF_BLOB,name:LAST_FIXTURE_PDF_NAME};
+}
+
+async function generateFixturePDF() {
+  try { const r=await buildFixturePDFBlob(); const url=URL.createObjectURL(r.blob); window.open(url,"_blank"); if($("fixturePdfStatus")) $("fixturePdfStatus").textContent="✓ Entire fixture PDF generated with side totals, missing/outstanding items, and the full item report."; setTimeout(()=>URL.revokeObjectURL(url),120000); }
+  catch(e){ if($("fixturePdfStatus")) $("fixturePdfStatus").textContent="Fixture PDF failed: "+e.message; }
+}
+async function shareFixturePDF() {
+  try { const r=LAST_FIXTURE_PDF_BLOB?{blob:LAST_FIXTURE_PDF_BLOB,name:LAST_FIXTURE_PDF_NAME}:await buildFixturePDFBlob(); const f=new File([r.blob],r.name,{type:"application/pdf"}); if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({title:"Planno Fixture Report",files:[f]});}else{const url=URL.createObjectURL(r.blob);window.open(url,"_blank");setTimeout(()=>URL.revokeObjectURL(url),120000);} if($("fixturePdfStatus")) $("fixturePdfStatus").textContent="✓ Fixture PDF ready to share."; }
+  catch(e){ if(e.name!=="AbortError"&&$("fixturePdfStatus")) $("fixturePdfStatus").textContent="Could not share fixture PDF: "+e.message; }
+}
+
 function savedPlansIndex() {
   try {
     return JSON.parse(localStorage.getItem("saved_planograms_index") || "[]");
@@ -1028,17 +1396,21 @@ async function buildPlannoPNG() {
   ctx.fillStyle="#111111";
   ctx.font="bold 21px Arial";
   ctx.fillText(`Planogram: ${planName}`,margin,111);
+  const fm = fixtureMetaFromForm();
+  ctx.fillStyle="#555555";
+  ctx.font="bold 12px Arial";
+  ctx.fillText(`${fm.group} • ${fm.type} • ${fm.side}`,margin,128);
 
   ctx.fillStyle="#555555";
   ctx.font="13px Arial";
-  ctx.fillText(`Date: ${reportDate}`,margin,132);
+  ctx.fillText(`Date: ${reportDate}`,margin,145);
 
   const counts=finalCounts();
   const pct=counts.total ? Math.round((counts.complete/counts.total)*100) : 0;
   ctx.font="bold 13px Arial";
   ctx.fillText(
     `${counts.total} Total • ${counts.complete} Complete • ${counts.missing} Missing • ${counts.notComplete} Not Complete • ${pct}% Complete`,
-    margin,153
+    margin,162
   );
 
   // Plannogram grid
@@ -1148,8 +1520,10 @@ function updatePdfReportSummary() {
   const pct = counts.total ? Math.round((counts.complete / counts.total) * 100) : 0;
   const store = ($("storeName")?.value || currentStore || "Store").trim();
   const storeId = ($("storeId")?.value || "").trim();
+  const fm = fixtureMetaFromForm();
   $("pdfReportSummary").innerHTML =
     `<b>Final Report — ${esc(store)}</b>${storeId ? ` • Store ID: ${esc(storeId)}` : ""}<br>` +
+    `${esc(fm.group)} • ${esc(fm.type)} • ${esc(fm.side)}<br>` +
     `${counts.total} total items • ${counts.complete} complete • ${counts.missing} missing • ${counts.notComplete} not complete • ${pct}% complete`;
 }
 
@@ -1261,6 +1635,7 @@ async function sharePlannoPNG() {
 }
 
 function renderFinalReview() {
+  renderFixtureOverview();
   if (!$("finalComplete")) return;
   renderVisualPlannogram();
 
@@ -1270,7 +1645,9 @@ function renderFinalReview() {
     const planName = ($("planogramName")?.value || fileName || "Plannogram").trim();
     const address = ($("storeAddress")?.value || currentStoreAddress || "").trim();
     const city = ($("storeCity")?.value || currentStoreCity || "").trim();
+    const fm = fixtureMetaFromForm();
     $("progressIdentity").innerHTML = `<div>${esc(store)} • ${esc(planName)}</div>` +
+      `<div><span class="fixture-pill">${esc(fm.type)}</span><span class="fixture-pill">${esc(fm.side)}</span><span class="fixture-pill">${esc(fm.group)}</span></div>` +
       ((address||city) ? `<div class="small" style="margin-top:4px">${esc([address,city].filter(Boolean).join(", "))}</div>` : "");
   }
   $("finalTotal").textContent = counts.total;
@@ -1894,6 +2271,11 @@ function saveAsNamedPlannogram() {
   const existing = index.find(p => p.name.toLowerCase() === name.toLowerCase() && (p.store||"").toLowerCase() === store.toLowerCase());
   const id = existing ? existing.id : safePlanId(store + "_" + name);
 
+  const fixtureMeta = fixtureMetaFromForm();
+  currentFixtureGroup = fixtureMeta.group;
+  currentFixtureType = fixtureMeta.type;
+  currentFixtureSide = fixtureMeta.side;
+
   const record = {
     id,
     name,
@@ -1901,6 +2283,9 @@ function saveAsNamedPlannogram() {
     storeAddress,
     storeCity,
     storeId,
+    fixtureGroup: fixtureMeta.group,
+    fixtureType: fixtureMeta.type,
+    fixtureSide: fixtureMeta.side,
     scanImage: currentScanImage || "",
     scanFileName: currentScanFileName || "",
     fileName,
@@ -1921,6 +2306,9 @@ function saveAsNamedPlannogram() {
     existing.storeId = storeId;
     existing.count = DATA.length;
     existing.fileName = fileName;
+    existing.fixtureGroup = fixtureMeta.group;
+    existing.fixtureType = fixtureMeta.type;
+    existing.fixtureSide = fixtureMeta.side;
   } else {
     index.push({
       id,
@@ -1931,7 +2319,10 @@ function saveAsNamedPlannogram() {
       storeId,
       savedAt: record.savedAt,
       count: DATA.length,
-      fileName
+      fileName,
+      fixtureGroup: fixtureMeta.group,
+      fixtureType: fixtureMeta.type,
+      fixtureSide: fixtureMeta.side
     });
   }
 
@@ -1963,6 +2354,13 @@ function openSavedPlannogram(id) {
     if ($("storeAddressSearch")) $("storeAddressSearch").value = record.storeAddress || "";
     if ($("storeCity")) $("storeCity").value = record.storeCity || "";
     if ($("storeId")) $("storeId").value = record.storeId || "";
+    currentFixtureGroup = record.fixtureGroup || record.name || "";
+    currentFixtureType = record.fixtureType || "Auto";
+    currentFixtureSide = record.fixtureSide || "Auto";
+    if ($("fixtureGroup")) $("fixtureGroup").value = currentFixtureGroup;
+    if ($("fixtureType")) $("fixtureType").value = record.fixtureType || "Auto";
+    if ($("fixtureSide")) $("fixtureSide").value = record.fixtureSide || "Auto";
+    updateFixtureHint();
     updateAttachmentPreview();
     if ($("scanPreview")) {
       if (currentScanImage) {
@@ -2004,6 +2402,10 @@ function updateSavedPlannogram(id) {
   record.data = DATA;
   record.fileName = fileName;
   record.currentCol = currentCol;
+  const fixtureMeta = fixtureMetaFromForm();
+  record.fixtureGroup = fixtureMeta.group;
+  record.fixtureType = fixtureMeta.type;
+  record.fixtureSide = fixtureMeta.side;
   record.statuses = collectStatusesForData(DATA);
   record.savedAt = new Date().toISOString();
   localStorage.setItem("saved_planogram|" + id, JSON.stringify(record));
@@ -2013,6 +2415,9 @@ function updateSavedPlannogram(id) {
   if (item) {
     item.savedAt = record.savedAt;
     item.count = DATA.length;
+    item.fixtureGroup = record.fixtureGroup;
+    item.fixtureType = record.fixtureType;
+    item.fixtureSide = record.fixtureSide;
     writeSavedPlansIndex(index);
   }
   renderSavedPlans();
@@ -2034,6 +2439,7 @@ function renderSavedPlans() {
           <div class="savedstore">${esc(p.store || "")}</div>
           <div class="planmeta">${esc([p.storeAddress,p.storeCity].filter(Boolean).join(", "))}</div>
           <div class="planmeta">${p.count || 0} positions${p.fileName ? " • " + esc(p.fileName) : ""}</div>
+          <div><span class="fixture-pill">${esc(p.fixtureType || "Fixture")}</span><span class="fixture-pill">${esc(p.fixtureSide || "Front")}</span>${p.fixtureGroup ? `<span class="fixture-pill">${esc(p.fixtureGroup)}</span>` : ""}</div>
           <div class="planmeta">Saved ${new Date(p.savedAt).toLocaleString()}</div>
         </div>
       </div>
@@ -2563,6 +2969,34 @@ $("importAllJsonFile").addEventListener("change", async e => {
   }
   e.target.value="";
 });
+
+if ($("planogramName")) $("planogramName").addEventListener("input", updateFixtureHint);
+if ($("fixtureGroup")) $("fixtureGroup").addEventListener("input", updateFixtureHint);
+if ($("fixtureType")) $("fixtureType").addEventListener("change", updateFixtureHint);
+if ($("fixtureSide")) $("fixtureSide").addEventListener("change", updateFixtureHint);
+if ($("generateFixturePdf")) $("generateFixturePdf").addEventListener("click", generateFixturePDF);
+if ($("shareFixturePdf")) $("shareFixturePdf").addEventListener("click", shareFixturePDF);
+updateFixtureHint();
+
+
+if ($('googleClientId')) $('googleClientId').value = localStorage.getItem('planno_google_client_id') || '';
+if ($('googleClientId')) $('googleClientId').addEventListener('change', () => {
+  localStorage.setItem('planno_google_client_id', $('googleClientId').value.trim());
+  GOOGLE_TOKEN_CLIENT = null;
+  GOOGLE_DRIVE_TOKEN = '';
+});
+if ($('connectGoogleDrive')) $('connectGoogleDrive').addEventListener('click', async () => {
+  try { driveStatus('Connecting to Google Drive…'); await ensureDriveToken('consent'); }
+  catch(e) { driveStatus('Connection failed: ' + e.message); }
+});
+if ($('disconnectGoogleDrive')) $('disconnectGoogleDrive').addEventListener('click', () => {
+  if (GOOGLE_DRIVE_TOKEN && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(GOOGLE_DRIVE_TOKEN,()=>{});
+  GOOGLE_DRIVE_TOKEN=''; GOOGLE_TOKEN_CLIENT=null; driveStatus('Disconnected. Local device saving still works.');
+});
+if ($('syncAllToDrive')) $('syncAllToDrive').addEventListener('click', syncAllPlannoToDrive);
+if ($('restoreAllFromDrive')) $('restoreAllFromDrive').addEventListener('click', restoreLatestPlannoFromDrive);
+if ($('saveFinalPdfDrive')) $('saveFinalPdfDrive').addEventListener('click', saveFinalPdfToDrive);
+if ($('saveFixturePdfDrive')) $('saveFixturePdfDrive').addEventListener('click', saveFixturePdfToDrive);
 
 loadSaved();
 try {
